@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "672802798639",
+    "project_id": "kxko-daily-briefing",
+    "storage_bucket": "kxko-daily-briefing.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:672802798639:android:4540b46c38262da4ad9ada",
+        "android_client_info": {
+          "package_name": "com.kxko.dailybriefing"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCRBWPM8XSXnCi4EXWH2w5iOiC17IQGRCk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

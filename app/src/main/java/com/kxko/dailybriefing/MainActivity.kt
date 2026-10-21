@@ -36,7 +36,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
@@ -94,10 +94,16 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        // Use opaque, coordinated system bars. Transparent bars let page content appear
+        // underneath Samsung's status/navigation areas and can make the UI feel unfinished.
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+            statusBarStyle = SystemBarStyle.dark(BG.toArgb()),
+            navigationBarStyle = SystemBarStyle.dark(NAV_BAR.toArgb())
         )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+            window.navigationBarDividerColor = NAV_BAR.toArgb()
+        }
 
         // Keep the existing Daily Briefing push-notification registration.
         FirebaseMessaging.getInstance()
@@ -153,7 +159,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier
                         .fillMaxSize()
                         .background(BG)
-                        .systemBarsPadding()
+                        .safeDrawingPadding()
                         .imePadding()
                 ) {
                     AndroidView(
@@ -356,10 +362,13 @@ class MainActivity : ComponentActivity() {
         private const val AUTO_REFRESH_MS = 60_000L
         private const val STALE_AFTER_MS = 30_000L
 
-        private val BG = Color(0xFF101416)
-        private val SURFACE = Color(0xFF171D20)
+        private val BG = Color(0xFF111315)
+        private val SURFACE = Color(0xFF1A1D20)
+        // A neutral grey gives Samsung's gesture/three-button navigation area a deliberate,
+        // integrated finish instead of the transparent/black strip.
+        private val NAV_BAR = Color(0xFF292C2F)
         private val BRASS = Color(0xFFC5A16B)
-        private val CREAM = Color(0xFFEEE9DF)
+        private val CREAM = Color(0xFFF0EEE9)
     }
 }
 

@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.KxkoDailyBriefing" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Splash screen (shown while the app starts), then hands over to the main theme. -->
+    <style name="Theme.KxkoDailyBriefing.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/kxko_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_k_mark</item>
+        <item name="postSplashScreenTheme">@style/Theme.KxkoDailyBriefing</item>
+    </style>
+
+    <!-- Dark main theme: no white flash, bars match the dashboard. -->
+    <style name="Theme.KxkoDailyBriefing" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/kxko_bg</item>
+        <item name="android:colorBackground">@color/kxko_bg</item>
+        <item name="android:statusBarColor">@color/kxko_bg</item>
+        <item name="android:navigationBarColor">@color/kxko_bg</item>
+        <item name="android:colorAccent">@color/kxko_brass</item>
+    </style>
 </resources>

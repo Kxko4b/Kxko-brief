@@ -245,7 +245,7 @@ class MainActivity : ComponentActivity() {
             settings.allowContentAccess = true
             settings.cacheMode = WebSettings.LOAD_DEFAULT
             // Lets the dashboard know it is running inside the app (app-style tweaks on the web side).
-            settings.userAgentString = settings.userAgentString + " KxkoApp/2"
+            settings.userAgentString = settings.userAgentString + " KxkoApp/2.1"
 
             CookieManager.getInstance().setAcceptCookie(true)
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
@@ -356,8 +356,9 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
-        // GitHub Pages URL for the renamed diagrams repository.
-        private const val ADMIN_URL = "https://kxko4b.github.io/diagrams/admin/"
+        // Keep the dashboard URL versioned so a fresh app build fetches the newest hosted interface.
+        // The dashboard is served from GitHub Pages; its HTML/CSS is not bundled into the APK.
+        private const val ADMIN_URL = "https://kxko4b.github.io/diagrams/admin/?appVersion=2.1"
         private const val ADMIN_HOST = "kxko4b.github.io"
         private const val AUTO_REFRESH_MS = 60_000L
         private const val STALE_AFTER_MS = 30_000L

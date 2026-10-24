@@ -156,7 +156,7 @@ class StudyQuizRepository(context: Context) {
             connectTimeout = 15000
             readTimeout = 20000
             setRequestProperty("apikey", publishableKey)
-            setRequestProperty("Authorization", "Bearer ${token ?: publishableKey}")
+            if (token != null) setRequestProperty("Authorization", "Bearer " + token)
             setRequestProperty("Content-Type", "application/json")
             if (body != null) doOutput = true
         }

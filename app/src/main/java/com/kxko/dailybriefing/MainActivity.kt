@@ -185,6 +185,21 @@ class MainActivity : ComponentActivity() {
                             webView?.loadUrl(ADMIN_URL)
                         })
                     }
+
+                    Button(
+                        onClick = {
+                            startActivity(Intent(this@MainActivity, CyclingQuizActivity::class.java))
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = BRASS,
+                            contentColor = Color(0xFF201C15)
+                        )
+                    ) {
+                        Text("Cycling Quiz", fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }

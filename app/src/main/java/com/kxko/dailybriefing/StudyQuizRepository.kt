@@ -31,8 +31,9 @@ class StudyQuizRepository(context: Context) {
     fun signIn(email: String, password: String) {
         val body = JSONObject().put("email", email.trim()).put("password", password)
         val result = request("POST", "/auth/v1/token?grant_type=password", body, null)
-        val access = result.optString("access_token")
-        val refresh = result.optString("refresh_token")
+        val session = result.optJSONObject(0) ?: throw IllegalStateException("Sign-in returned an invalid session.")
+        val access = session.optString("access_token")
+        val refresh = session.optString("refresh_token")
         if (access.isBlank() || refresh.isBlank()) throw IllegalStateException("Sign-in did not return a session.")
         prefs.edit().putString("access_token", access).putString("refresh_token", refresh).apply()
     }
@@ -52,6 +53,12 @@ class StudyQuizRepository(context: Context) {
                 loadExams(token)
             } else throw e
         }
+        val withTopics = JSONArray()
+        for (i in 0 until exams.length()) {
+            val exam = exams.getJSONObject(i)
+            if (exam.optString("topics").isNotBlank()) withTopics.put(exam)
+        }
+        exams = withTopics
         if (exams.length() == 0) throw IllegalStateException("No upcoming tests with saved topics were found.")
         val output = mutableListOf<StudyQuizItem>()
         for (i in 0 until exams.length()) {
@@ -134,7 +141,8 @@ class StudyQuizRepository(context: Context) {
         val refresh = prefs.getString("refresh_token", null)
             ?: throw IllegalStateException("Your session expired. Please sign in again.")
         val result = request("POST", "/auth/v1/token?grant_type=refresh_token",
-            JSONObject().put("refresh_token", refresh), null)
+            JSONObject().put("refresh_token", refresh), null).optJSONObject(0)
+            ?: throw IllegalStateException("Your session expired. Please sign in again.")
         val access = result.optString("access_token")
         val nextRefresh = result.optString("refresh_token", refresh)
         if (access.isBlank()) throw IllegalStateException("Your session expired. Please sign in again.")

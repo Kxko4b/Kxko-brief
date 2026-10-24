@@ -55,4 +55,5 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
     implementation("com.google.firebase:firebase-messaging:24.1.2")
+    implementation("androidx.media:media:1.7.0")
 }

@@ -256,10 +256,20 @@ class CyclingQuizActivity : ComponentActivity() {
         currentQuestion = next
         statusText = "Höre dir alle drei Antworten an und drücke dann eine Taste an deiner Uhr."
         updateMediaSession()
+        val spokenSubject = when (next.languageTag) {
+            "nl-NL" -> "Nederlands"
+            "en-GB" -> "English"
+            else -> next.subject
+        }
+        val optionWord = when (next.languageTag) {
+            "nl-NL" -> "Optie"
+            "en-GB" -> "Option"
+            else -> "Antwortmöglichkeit"
+        }
         val spokenQuestion = buildString {
-            append(next.subject).append(". ")
+            append(spokenSubject).append(". ")
             append(next.prompt).append(" ")
-            next.options.forEachIndexed { index, option -> append("Antwortmöglichkeit ${index + 1}. ").append(option).append(". ") }
+            next.options.forEachIndexed { index, option -> append("$optionWord ${index + 1}. ").append(option).append(". ") }
         }
         speak(spokenQuestion) {
             acceptingAnswers = true
@@ -274,17 +284,29 @@ class CyclingQuizActivity : ComponentActivity() {
         acceptingAnswers = false
         answerCount += 1
         val correct = index == question.correctIndex
+        val feedback = when (question.languageTag) {
+            "nl-NL" -> if (correct) {
+                "Goed gedaan. ${question.explanation}"
+            } else {
+                "Niet helemaal. Het juiste antwoord is optie ${question.correctIndex + 1}: ${question.options[question.correctIndex]}. ${question.explanation} Ik stel deze vraag later opnieuw."
+            }
+            "en-GB" -> if (correct) {
+                "Correct. ${question.explanation}"
+            } else {
+                "Not quite. The correct answer is option ${question.correctIndex + 1}: ${question.options[question.correctIndex]}. ${question.explanation} I'll ask about this again later."
+            }
+            else -> if (correct) {
+                "Richtig. ${question.explanation}"
+            } else {
+                "Nicht ganz. Die richtige Antwort ist ${question.correctIndex + 1}: ${question.options[question.correctIndex]}. ${question.explanation} Ich frage später noch einmal danach."
+            }
+        }
         if (correct) {
             correctCount += 1
-            statusText = "Richtig. ${question.explanation}"
+            statusText = feedback
         } else {
-            statusText = "Nicht ganz. Die richtige Antwort ist ${question.correctIndex + 1}: ${question.options[question.correctIndex]}. ${question.explanation}"
+            statusText = feedback
             scheduledReviews.add(ScheduledReview(question, answerCount + 3))
-        }
-        val feedback = if (correct) {
-            "Richtig. ${question.explanation}"
-        } else {
-            "Nicht ganz. Die richtige Antwort ist ${question.correctIndex + 1}: ${question.options[question.correctIndex]}. ${question.explanation} Ich frage später noch einmal danach."
         }
         speak(feedback) {
             handler.postDelayed({ if (started && !isFinishing) nextQuestion() }, 800L)

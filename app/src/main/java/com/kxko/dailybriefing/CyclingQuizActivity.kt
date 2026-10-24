@@ -19,10 +19,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
@@ -33,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,6 +63,11 @@ class CyclingQuizActivity : ComponentActivity() {
     private var tts: TextToSpeech? = null
     private var mediaSession: MediaSessionCompat? = null
     private var ttsReady by mutableStateOf(false)
+    private var studyLoaded by mutableStateOf(false)
+    private var isLoadingStudy by mutableStateOf(false)
+    private var studyEmail by mutableStateOf("")
+    private var studyPassword by mutableStateOf("")
+    private val studyRepository by lazy { StudyQuizRepository(applicationContext) }
     private var started by mutableStateOf(false)
     private var acceptingAnswers by mutableStateOf(false)
     private var finished by mutableStateOf(false)
@@ -69,7 +78,7 @@ class CyclingQuizActivity : ComponentActivity() {
     private val utteranceCallbacks = mutableMapOf<String, () -> Unit>()
     private var utteranceNumber = 0
 
-    private val questionBank = listOf(
+    private var questionBank = listOf(
         QuizQuestion("bio-mito", "Biologie", "Welches Zellorganell erzeugt den größten Teil der Energie, die eine Zelle benötigt?", listOf("Zellkern", "Mitochondrium", "Ribosom"), 1, "Mitochondrien erzeugen den größten Teil des ATP, das Zellen als Energiequelle nutzen."),
         QuizQuestion("bio-nucleus", "Biologie", "Welche Zellstruktur enthält den größten Teil der DNA einer Zelle?", listOf("Zellkern", "Zellmembran", "Ribosom"), 0, "Der Zellkern enthält den größten Teil der genetischen Information einer eukaryotischen Zelle."),
         QuizQuestion("physics-force", "Physik", "In welcher Einheit wird die Kraft gemessen?", listOf("Watt", "Newton", "Joule"), 1, "Kraft wird in Newton gemessen. Watt ist die Einheit der Leistung und Joule die der Energie."),
@@ -138,7 +147,7 @@ class CyclingQuizActivity : ComponentActivity() {
                     color = Color(0xFF111315)
                 ) {
                     Column(
-                        modifier = Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 18.dp),
+                        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 18.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
@@ -191,14 +200,41 @@ class CyclingQuizActivity : ComponentActivity() {
                             ) { Text("End session") }
                         } else if (!finished) {
                             Spacer(Modifier.height(22.dp))
+                            OutlinedTextField(
+                                value = studyEmail,
+                                onValueChange = { studyEmail = it },
+                                label = { Text("Study app email") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = studyPassword,
+                                onValueChange = { studyPassword = it },
+                                label = { Text("Study app password") },
+                                singleLine = true,
+                                visualTransformation = PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Button(
+                                onClick = { loadStudyQuestions() },
+                                enabled = ttsReady && !isLoadingStudy && studyEmail.isNotBlank() && studyPassword.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF292C2F), contentColor = Color(0xFFF0EEE9))
+                            ) {
+                                Text(if (isLoadingStudy) "Lade gespeicherte Tests …" else "Mit Study-App anmelden & Tests laden")
+                            }
+                            Spacer(Modifier.height(10.dp))
                             Button(
                                 onClick = { startQuiz() },
-                                enabled = ttsReady,
+                                enabled = ttsReady && studyLoaded,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(16.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC5A16B), contentColor = Color(0xFF201C15))
                             ) {
-                                Text(if (ttsReady) "Quiz starten" else "Stimme wird vorbereitet …", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                                Text(if (!ttsReady) "Stimme wird vorbereitet …" else if (!studyLoaded) "Zuerst Tests laden" else "Quiz starten", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                             }
                             Spacer(Modifier.height(10.dp))
                             Button(
@@ -222,13 +258,39 @@ class CyclingQuizActivity : ComponentActivity() {
         runOnUiThread { submitAnswer(index) }
     }
 
+    private fun loadStudyQuestions() {
+        if (isLoadingStudy) return
+        isLoadingStudy = true
+        statusText = "Anmeldung und Tests werden geladen …"
+        Thread {
+            try {
+                studyRepository.signIn(studyEmail, studyPassword)
+                val loaded = studyRepository.loadUpcomingQuestions()
+                runOnUiThread {
+                    questionBank = loaded.map { item ->
+                        QuizQuestion(item.id, item.subject, item.prompt, item.options, item.correctIndex, item.explanation)
+                    }
+                    studyLoaded = true
+                    isLoadingStudy = false
+                    studyPassword = ""
+                    statusText = "${questionBank.size} Fragen aus deinen gespeicherten Tests geladen. Der nächste Test kommt zuerst."
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    isLoadingStudy = false
+                    statusText = error.message ?: "Tests konnten nicht geladen werden."
+                }
+            }
+        }.start()
+    }
+
     private fun startQuiz() {
-        if (!ttsReady || started) return
+        if (!ttsReady || !studyLoaded || started) return
         started = true
         finished = false
         answerCount = 0
         correctCount = 0
-        remainingQuestions = questionBank.shuffled().toMutableList()
+        remainingQuestions = questionBank.toMutableList()
         scheduledReviews.clear()
         mediaSession?.isActive = true
         updateMediaSession()
@@ -367,7 +429,7 @@ class CyclingQuizActivity : ComponentActivity() {
         finished = false
         started = false
         currentQuestion = null
-        statusText = "Start while stationary. Keep your attention on the road while cycling."
+        statusText = if (studyLoaded) "Deine gespeicherten Tests sind bereit. Starte nur im Stillstand." else "Melde dich an, um deine gespeicherten Tests zu laden. Starte nur im Stillstand."
         answerCount = 0
         correctCount = 0
         scheduledReviews.clear()

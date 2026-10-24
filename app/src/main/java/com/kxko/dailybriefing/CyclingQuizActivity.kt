@@ -1,10 +1,12 @@
 package com.kxko.dailybriefing
 
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -45,7 +47,8 @@ private data class QuizQuestion(
     val prompt: String,
     val options: List<String>,
     val correctIndex: Int,
-    val explanation: String
+    val explanation: String,
+    val languageTag: String = "de-DE"
 )
 
 private data class ScheduledReview(val question: QuizQuestion, val dueAfterAnswer: Int)
@@ -60,25 +63,25 @@ class CyclingQuizActivity : ComponentActivity() {
     private var acceptingAnswers by mutableStateOf(false)
     private var finished by mutableStateOf(false)
     private var currentQuestion by mutableStateOf<QuizQuestion?>(null)
-    private var statusText by mutableStateOf("Start while stationary. Keep your attention on the road while cycling.")
+    private var statusText by mutableStateOf("Bitte nur im Stillstand starten. Achte beim Radfahren immer auf den Verkehr.")
     private var answerCount by mutableStateOf(0)
     private var correctCount by mutableStateOf(0)
     private val utteranceCallbacks = mutableMapOf<String, () -> Unit>()
     private var utteranceNumber = 0
 
     private val questionBank = listOf(
-        QuizQuestion("bio-mito", "Biology", "Which organelle produces most of the energy a cell uses?", listOf("Nucleus", "Mitochondrion", "Ribosome"), 1, "Mitochondria make most of the ATP that cells use as an energy source."),
-        QuizQuestion("bio-nucleus", "Biology", "Which cell structure contains most of a cell's DNA?", listOf("Nucleus", "Cell membrane", "Ribosome"), 0, "The nucleus stores most of a eukaryotic cell's genetic information."),
-        QuizQuestion("physics-force", "Physics", "What is the unit of force?", listOf("Watt", "Newton", "Joule"), 1, "Force is measured in newtons. Watts measure power and joules measure energy."),
-        QuizQuestion("physics-current", "Physics", "Which unit is used to measure electric current?", listOf("Volt", "Ohm", "Ampere"), 2, "Electric current is measured in amperes, often shortened to amps."),
-        QuizQuestion("html-link", "HTML", "Which HTML element creates a hyperlink?", listOf("<img>", "<a>", "<p>"), 1, "The a element creates a link. Its href attribute contains the destination."),
-        QuizQuestion("html-href", "HTML", "Which attribute gives a link its destination URL?", listOf("src", "alt", "href"), 2, "The href attribute specifies where a link points."),
-        QuizQuestion("css-color", "CSS", "Which CSS declaration makes paragraph text red?", listOf("p { color: red; }", "p { font: red; }", "p { text: red; }"), 0, "The color property sets text colour. The background-color property changes the background."),
-        QuizQuestion("js-variable", "JavaScript", "Which keyword declares a variable that can be reassigned?", listOf("const", "let", "style"), 1, "let declares a block-scoped variable that can be reassigned. const is for bindings that should not be reassigned."),
-        QuizQuestion("dutch-thanks", "Dutch", "What does 'Dank je wel' mean?", listOf("Good morning", "Thank you", "I don't understand"), 1, "Dank je wel means thank you."),
-        QuizQuestion("dutch-come", "Dutch", "Complete the sentence: 'Ik ___ uit Duitsland.'", listOf("ben", "kom", "heb"), 1, "Ik kom uit Duitsland means I come from Germany. Dutch uses komen for this expression."),
-        QuizQuestion("english-noun", "English", "Which word is a noun in this sentence: 'The signal changed quickly'?", listOf("quickly", "changed", "signal"), 2, "Signal is a noun here. Changed is a verb and quickly is an adverb."),
-        QuizQuestion("biology-membrane", "Biology", "What is a main function of the cell membrane?", listOf("Control what enters and leaves the cell", "Make all the cell's DNA", "Produce sunlight"), 0, "The cell membrane acts as a selective barrier, helping regulate what enters and leaves the cell.")
+        QuizQuestion("bio-mito", "Biologie", "Welches Zellorganell erzeugt den größten Teil der Energie, die eine Zelle benötigt?", listOf("Zellkern", "Mitochondrium", "Ribosom"), 1, "Mitochondrien erzeugen den größten Teil des ATP, das Zellen als Energiequelle nutzen."),
+        QuizQuestion("bio-nucleus", "Biologie", "Welche Zellstruktur enthält den größten Teil der DNA einer Zelle?", listOf("Zellkern", "Zellmembran", "Ribosom"), 0, "Der Zellkern enthält den größten Teil der genetischen Information einer eukaryotischen Zelle."),
+        QuizQuestion("physics-force", "Physik", "In welcher Einheit wird die Kraft gemessen?", listOf("Watt", "Newton", "Joule"), 1, "Kraft wird in Newton gemessen. Watt ist die Einheit der Leistung und Joule die der Energie."),
+        QuizQuestion("physics-current", "Physik", "In welcher Einheit wird die elektrische Stromstärke gemessen?", listOf("Volt", "Ohm", "Ampere"), 2, "Die elektrische Stromstärke wird in Ampere gemessen."),
+        QuizQuestion("html-link", "HTML", "Welches HTML-Element erstellt einen Hyperlink?", listOf("<img>", "<a>", "<p>"), 1, "Das a-Element erstellt einen Link. Das Attribut href enthält das Linkziel."),
+        QuizQuestion("html-href", "HTML", "Welches Attribut legt die Zieladresse eines Links fest?", listOf("src", "alt", "href"), 2, "Das Attribut href legt fest, auf welches Ziel ein Link verweist."),
+        QuizQuestion("css-color", "CSS", "Welche CSS-Regel färbt den Text eines Absatzes rot?", listOf("p { color: red; }", "p { font: red; }", "p { text: red; }"), 0, "Die Eigenschaft color legt die Textfarbe fest. background-color ändert die Hintergrundfarbe."),
+        QuizQuestion("js-variable", "JavaScript", "Welches Schlüsselwort deklariert eine Variable, der später ein neuer Wert zugewiesen werden kann?", listOf("const", "let", "style"), 1, "let deklariert eine Variable, deren Wert später geändert werden kann. const ist für Variablen gedacht, die nicht neu zugewiesen werden sollen."),
+        QuizQuestion("dutch-thanks", "Niederländisch", "Was bedeutet „Dank je wel“?", listOf("Guten Morgen", "Vielen Dank", "Ich verstehe es nicht"), 1, "„Dank je wel“ bedeutet „Vielen Dank“.", "nl-NL"),
+        QuizQuestion("dutch-come", "Niederländisch", "Vul de zin aan: „Ik ___ uit Duitsland.“", listOf("ben", "kom", "heb"), 1, "„Ik kom uit Duitsland“ betekent dat je uit Duitsland komt. In het Nederlands gebruik je hiervoor „komen“.", "nl-NL"),
+        QuizQuestion("english-noun", "Englisch", "Which word is a noun in this sentence: “The signal changed quickly”?", listOf("quickly", "changed", "signal"), 2, "Signal is a noun here. Changed is a verb and quickly is an adverb.", "en-GB"),
+        QuizQuestion("biology-membrane", "Biologie", "Was ist eine wichtige Aufgabe der Zellmembran?", listOf("Regeln, was in die Zelle hinein- und hinausgelangt", "Die gesamte DNA der Zelle herstellen", "Sonnenlicht erzeugen"), 0, "Die Zellmembran ist eine selektive Barriere und reguliert, welche Stoffe in die Zelle hinein- und hinausgelangen.")
     )
 
     private var remainingQuestions = mutableListOf<QuizQuestion>()
@@ -90,9 +93,9 @@ class CyclingQuizActivity : ComponentActivity() {
         tts = TextToSpeech(this) { result ->
             if (result == TextToSpeech.SUCCESS) {
                 val engine = tts
-                val languageResult = engine?.setLanguage(Locale.UK)
+                val languageResult = engine?.setLanguage(Locale.GERMANY)
                 if (languageResult == TextToSpeech.LANG_MISSING_DATA || languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    engine?.language = Locale.getDefault()
+                    engine?.language = Locale.GERMANY
                 }
                 engine?.setSpeechRate(0.9f)
                 engine?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -142,7 +145,7 @@ class CyclingQuizActivity : ComponentActivity() {
                         Text("KXKO", color = Color(0xFFC5A16B), fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
                         Spacer(Modifier.height(10.dp))
                         Text(
-                            "Cycling Quiz",
+                            "Radfahr-Quiz",
                             color = Color(0xFFF0EEE9),
                             fontSize = 30.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -150,7 +153,7 @@ class CyclingQuizActivity : ComponentActivity() {
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "Previous = 1  ·  Play/Pause = 2  ·  Next = 3",
+                            "Zurück = 1  ·  Wiedergabe/Pause = 2  ·  Weiter = 3",
                             color = Color(0xFFC5A16B),
                             fontSize = 14.sp,
                             textAlign = TextAlign.Center
@@ -158,7 +161,7 @@ class CyclingQuizActivity : ComponentActivity() {
                         Spacer(Modifier.height(20.dp))
                         Text(
                             currentQuestion?.let { "${it.subject}\n\n${it.prompt}\n\n1. ${it.options[0]}\n2. ${it.options[1]}\n3. ${it.options[2]}" }
-                                ?: "Questions are read aloud. Choose with your watch's media buttons. Missed questions return later.",
+                                ?: "Die Fragen werden vorgelesen. Wähle mit den Medientasten deiner Uhr. Falsche Antworten kommen später wieder.",
                             color = Color(0xFFF0EEE9),
                             fontSize = 18.sp,
                             textAlign = TextAlign.Center,
@@ -195,8 +198,14 @@ class CyclingQuizActivity : ComponentActivity() {
                                 shape = RoundedCornerShape(16.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC5A16B), contentColor = Color(0xFF201C15))
                             ) {
-                                Text(if (ttsReady) "Start quiz" else "Preparing voice…", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                                Text(if (ttsReady) "Quiz starten" else "Stimme wird vorbereitet …", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                             }
+                            Spacer(Modifier.height(10.dp))
+                            Button(
+                                onClick = { startActivity(Intent(Settings.ACTION_TEXT_TO_SPEECH_SETTINGS)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF292C2F), contentColor = Color(0xFFF0EEE9))
+                            ) { Text("Sprachqualität verbessern") }
                         } else {
                             Spacer(Modifier.height(22.dp))
                             Text("Session complete", color = Color(0xFFC5A16B), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
@@ -245,16 +254,16 @@ class CyclingQuizActivity : ComponentActivity() {
             return
         }
         currentQuestion = next
-        statusText = "Listen to all three options, then press a watch button."
+        statusText = "Höre dir alle drei Antworten an und drücke dann eine Taste an deiner Uhr."
         updateMediaSession()
         val spokenQuestion = buildString {
             append(next.subject).append(". ")
             append(next.prompt).append(" ")
-            next.options.forEachIndexed { index, option -> append("Option ${index + 1}. ").append(option).append(". ") }
+            next.options.forEachIndexed { index, option -> append("Antwortmöglichkeit ${index + 1}. ").append(option).append(". ") }
         }
         speak(spokenQuestion) {
             acceptingAnswers = true
-            statusText = "Choose 1, 2, or 3 using your watch."
+            statusText = "Wähle 1, 2 oder 3 mit deiner Uhr."
         }
     }
 
@@ -267,15 +276,15 @@ class CyclingQuizActivity : ComponentActivity() {
         val correct = index == question.correctIndex
         if (correct) {
             correctCount += 1
-            statusText = "Correct. ${question.explanation}"
+            statusText = "Richtig. ${question.explanation}"
         } else {
-            statusText = "Not quite. The answer is ${question.correctIndex + 1}, ${question.options[question.correctIndex]}. ${question.explanation}"
+            statusText = "Nicht ganz. Die richtige Antwort ist ${question.correctIndex + 1}: ${question.options[question.correctIndex]}. ${question.explanation}"
             scheduledReviews.add(ScheduledReview(question, answerCount + 3))
         }
         val feedback = if (correct) {
-            "Correct. ${question.explanation}"
+            "Richtig. ${question.explanation}"
         } else {
-            "Not quite. The correct answer is option ${question.correctIndex + 1}: ${question.options[question.correctIndex]}. ${question.explanation} I'll ask about this again later."
+            "Nicht ganz. Die richtige Antwort ist ${question.correctIndex + 1}: ${question.options[question.correctIndex]}. ${question.explanation} Ich frage später noch einmal danach."
         }
         speak(feedback) {
             handler.postDelayed({ if (started && !isFinishing) nextQuestion() }, 800L)
@@ -304,11 +313,16 @@ class CyclingQuizActivity : ComponentActivity() {
         )
     }
 
-    private fun speak(text: String, onDone: (() -> Unit)? = null) {
+    private fun speak(text: String, onDone: (() -> Unit)? = null, languageTag: String? = currentQuestion?.languageTag) {
         val engine = tts
         if (engine == null || !ttsReady) {
             onDone?.invoke()
             return
+        }
+        val requestedLocale = Locale.forLanguageTag(languageTag ?: "de-DE")
+        val languageResult = engine.setLanguage(requestedLocale)
+        if (languageResult == TextToSpeech.LANG_MISSING_DATA || languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+            engine.setLanguage(Locale.GERMANY)
         }
         val id = "kxko-quiz-${++utteranceNumber}"
         if (onDone != null) utteranceCallbacks[id] = onDone

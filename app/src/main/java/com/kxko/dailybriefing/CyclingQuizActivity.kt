@@ -237,11 +237,19 @@ class CyclingQuizActivity : ComponentActivity() {
                                 Text(if (!ttsReady) "Stimme wird vorbereitet …" else if (!studyLoaded) "Zuerst Tests laden" else "Quiz starten", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                             }
                             Spacer(Modifier.height(10.dp))
+                            Text(
+                                "Für eine natürlichere kostenlose Stimme: Installiere SherpaTTS aus F-Droid, lade eine deutsche Stimme herunter und wähle sie danach in den Android-Sprachausgabe-Einstellungen aus. Das Quiz verwendet dann die dort ausgewählte TTS-Engine.",
+                                color = Color(0xFFB9B5AB),
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 18.sp
+                            )
+                            Spacer(Modifier.height(8.dp))
                             Button(
                                 onClick = { startActivity(Intent(Settings.ACTION_TEXT_TO_SPEECH_SETTINGS)) },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF292C2F), contentColor = Color(0xFFF0EEE9))
-                            ) { Text("Sprachqualität verbessern") }
+                            ) { Text("KI-Stimme auswählen") }
                         } else {
                             Spacer(Modifier.height(22.dp))
                             Text("Session complete", color = Color(0xFFC5A16B), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)

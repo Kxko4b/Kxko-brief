@@ -186,20 +186,6 @@ class MainActivity : ComponentActivity() {
                         })
                     }
 
-                    Button(
-                        onClick = {
-                            startActivity(Intent(this@MainActivity, CyclingQuizActivity::class.java))
-                        },
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(16.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = BRASS,
-                            contentColor = Color(0xFF201C15)
-                        )
-                    ) {
-                        Text("Cycling Quiz", fontWeight = FontWeight.SemiBold)
-                    }
                 }
             }
         }
@@ -331,6 +317,13 @@ class MainActivity : ComponentActivity() {
         fun tick() {
             view.post { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
         }
+
+        @JavascriptInterface
+        fun openCyclingQuiz() {
+            view.post {
+                view.context.startActivity(Intent(view.context, CyclingQuizActivity::class.java))
+            }
+        }
     }
 
     override fun onResume() {
@@ -373,7 +366,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         // Keep the dashboard URL versioned so a fresh app build fetches the newest hosted interface.
         // The dashboard is served from GitHub Pages; its HTML/CSS is not bundled into the APK.
-        private const val ADMIN_URL = "https://kxko4b.github.io/diagrams/admin/?appVersion=2.1"
+        private const val ADMIN_URL = "https://kxko4b.github.io/diagrams/admin/?appVersion=2.2"
         private const val ADMIN_HOST = "kxko4b.github.io"
         private const val AUTO_REFRESH_MS = 60_000L
         private const val STALE_AFTER_MS = 30_000L

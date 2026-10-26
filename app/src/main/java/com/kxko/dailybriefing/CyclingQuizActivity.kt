@@ -271,7 +271,6 @@ class CyclingQuizActivity : ComponentActivity() {
     }
 
     private fun isSherpaTtsInstalled(): Boolean = try {
-        @Suppress("DEPRECATION")
         packageManager.getPackageInfo(SHERPA_TTS_PACKAGE, 0)
         true
     } catch (_: Exception) {

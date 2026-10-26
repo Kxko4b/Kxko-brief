@@ -57,6 +57,8 @@ private data class QuizQuestion(
 
 private data class ScheduledReview(val question: QuizQuestion, val dueAfterAnswer: Int)
 
+private const val SHERPA_TTS_PACKAGE = "org.woheller69.ttsengine"
+
 class CyclingQuizActivity : ComponentActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
@@ -99,7 +101,7 @@ class CyclingQuizActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        tts = TextToSpeech(this) { result ->
+        val ttsInitListener = TextToSpeech.OnInitListener { result ->
             if (result == TextToSpeech.SUCCESS) {
                 val engine = tts
                 val languageResult = engine?.setLanguage(Locale.GERMANY)
@@ -120,6 +122,12 @@ class CyclingQuizActivity : ComponentActivity() {
             } else {
                 statusText = "Speech could not start. Check that a text-to-speech voice is installed."
             }
+        }
+        // Prefer the free, offline neural SherpaTTS engine when installed; otherwise keep the device default.
+        tts = if (isSherpaTtsInstalled()) {
+            TextToSpeech(this, ttsInitListener, SHERPA_TTS_PACKAGE)
+        } else {
+            TextToSpeech(this, ttsInitListener)
         }
 
         mediaSession = MediaSessionCompat(this, "KxkoCyclingQuiz").apply {
@@ -260,6 +268,14 @@ class CyclingQuizActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun isSherpaTtsInstalled(): Boolean = try {
+        @Suppress("DEPRECATION")
+        packageManager.getPackageInfo(SHERPA_TTS_PACKAGE, 0)
+        true
+    } catch (_: Exception) {
+        false
     }
 
     private fun sendAnswerFromWatch(index: Int) {

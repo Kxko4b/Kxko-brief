@@ -1,6 +1,8 @@
 package com.kxko.dailybriefing
 
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -44,7 +46,12 @@ import androidx.compose.ui.unit.sp
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
+import java.io.File
 import java.util.Locale
+import java.util.concurrent.Callable
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
 
 private data class QuizQuestion(
     val id: String,
@@ -80,6 +87,15 @@ class CyclingQuizActivity : ComponentActivity() {
     private var correctCount by mutableStateOf(0)
     private val utteranceCallbacks = mutableMapOf<String, () -> Unit>()
     private var utteranceNumber = 0
+
+    // Lively AI voice (server-made speech). Falls back to the phone's own text-to-speech whenever it is unavailable.
+    private val voiceExecutor: ExecutorService = Executors.newFixedThreadPool(3)
+    private val voiceCache = HashMap<String, ByteArray>()
+    private val voiceInflight = HashMap<String, Future<ByteArray?>>()
+    private var voicePlayer: MediaPlayer? = null
+    private var speakToken = 0
+    private var aiVoiceFailures = 0
+    private var aiVoiceEnabled by mutableStateOf(true)
 
     private var questionBank = listOf(
         QuizQuestion("bio-mito", "Biologie", "Welches Zellorganell erzeugt den größten Teil der Energie, die eine Zelle benötigt?", listOf("Zellkern", "Mitochondrium", "Ribosom"), 1, "Mitochondrien erzeugen den größten Teil des ATP, das Zellen als Energiequelle nutzen."),
@@ -247,6 +263,15 @@ class CyclingQuizActivity : ComponentActivity() {
                             }
                             Spacer(Modifier.height(10.dp))
                             Text(
+                                if (aiVoiceEnabled) "Lebendige KI-Stimme aktiv (braucht Internet). Ohne Verbindung liest die App mit deiner Telefonstimme vor."
+                                else "Die KI-Stimme ist gerade nicht verfügbar. Die App liest mit deiner Telefonstimme vor.",
+                                color = Color(0xFFC5A16B),
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 18.sp
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Text(
                                 if (isSherpaTtsInstalled())
                                     "SherpaTTS is installed. Choose it as your preferred speech engine, then download a German voice in SherpaTTS. It runs locally and is free to use."
                                 else
@@ -370,16 +395,12 @@ class CyclingQuizActivity : ComponentActivity() {
             acceptingAnswers = true
             statusText = "Wähle 1, 2 oder 3 mit deiner Uhr."
         })
+        // While the question is read, prepare both possible reactions so the answer feels instant.
+        prefetchVoice(feedbackText(next, true), next.languageTag)
+        prefetchVoice(feedbackText(next, false), next.languageTag)
     }
 
-    private fun submitAnswer(index: Int) {
-        val question = currentQuestion ?: return
-        if (!started || !acceptingAnswers || finished || index !in 0..2) return
-
-        acceptingAnswers = false
-        answerCount += 1
-        val correct = index == question.correctIndex
-        val feedback = when (question.languageTag) {
+    private fun feedbackText(question: QuizQuestion, correct: Boolean): String = when (question.languageTag) {
             "nl-NL" -> if (correct) {
                 "Goed gedaan. ${question.explanation}"
             } else {
@@ -395,7 +416,16 @@ class CyclingQuizActivity : ComponentActivity() {
             } else {
                 "Nicht ganz. Die richtige Antwort ist ${question.correctIndex + 1}: ${question.options[question.correctIndex]}. ${question.explanation} Ich frage später noch einmal danach."
             }
-        }
+    }
+
+    private fun submitAnswer(index: Int) {
+        val question = currentQuestion ?: return
+        if (!started || !acceptingAnswers || finished || index !in 0..2) return
+
+        acceptingAnswers = false
+        answerCount += 1
+        val correct = index == question.correctIndex
+        val feedback = feedbackText(question, correct)
         if (correct) {
             correctCount += 1
             statusText = feedback
@@ -431,12 +461,99 @@ class CyclingQuizActivity : ComponentActivity() {
     }
 
     private fun speak(text: String, onDone: (() -> Unit)? = null, languageTag: String? = currentQuestion?.languageTag) {
+        val lang = languageTag ?: "de-DE"
+        if (!aiVoiceEnabled || !studyLoaded) {
+            speakWithDevice(text, onDone, lang)
+            return
+        }
+        val token = ++speakToken
+        tts?.stop()
+        stopVoicePlayer()
+        Thread {
+            val bytes = fetchVoice(text, lang)
+            runOnUiThread {
+                if (token != speakToken || isFinishing) return@runOnUiThread
+                if (bytes == null) {
+                    aiVoiceFailures += 1
+                    if (aiVoiceFailures >= 2) aiVoiceEnabled = false
+                    speakWithDevice(text, onDone, lang)
+                } else {
+                    aiVoiceFailures = 0
+                    playVoice(bytes, onFail = { speakWithDevice(text, onDone, lang) }, onDone = onDone)
+                }
+            }
+        }.start()
+    }
+
+    private fun fetchVoice(text: String, lang: String): ByteArray? {
+        val key = "$lang|$text"
+        synchronized(voiceCache) { voiceCache[key]?.let { return it } }
+        val future = synchronized(voiceInflight) {
+            voiceInflight.getOrPut(key) {
+                voiceExecutor.submit(Callable<ByteArray?> {
+                    val result = try { studyRepository.synthesize(text, lang) } catch (_: Exception) { null }
+                    if (result != null) synchronized(voiceCache) { voiceCache[key] = result }
+                    synchronized(voiceInflight) { voiceInflight.remove(key) }
+                    result
+                })
+            }
+        }
+        return try { future.get() } catch (_: Exception) { null }
+    }
+
+    private fun prefetchVoice(text: String, lang: String) {
+        if (!aiVoiceEnabled || !studyLoaded) return
+        Thread { fetchVoice(text, lang) }.start()
+    }
+
+    private fun playVoice(bytes: ByteArray, onFail: () -> Unit, onDone: (() -> Unit)?) {
+        try {
+            val file = File(cacheDir, "kxko-voice-${++utteranceNumber}.wav")
+            file.writeBytes(bytes)
+            val player = MediaPlayer()
+            voicePlayer = player
+            player.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            player.setDataSource(file.absolutePath)
+            player.setOnPreparedListener { it.start() }
+            player.setOnCompletionListener { mp ->
+                mp.release()
+                if (voicePlayer === mp) voicePlayer = null
+                file.delete()
+                onDone?.invoke()
+            }
+            player.setOnErrorListener { mp, _, _ ->
+                mp.release()
+                if (voicePlayer === mp) voicePlayer = null
+                file.delete()
+                onFail()
+                true
+            }
+            player.prepareAsync()
+        } catch (_: Exception) {
+            stopVoicePlayer()
+            onFail()
+        }
+    }
+
+    private fun stopVoicePlayer() {
+        val player = voicePlayer ?: return
+        voicePlayer = null
+        try { player.stop() } catch (_: Exception) { }
+        try { player.release() } catch (_: Exception) { }
+    }
+
+    private fun speakWithDevice(text: String, onDone: (() -> Unit)?, languageTag: String) {
         val engine = tts
         if (engine == null || !ttsReady) {
             onDone?.invoke()
             return
         }
-        val requestedLocale = Locale.forLanguageTag(languageTag ?: "de-DE")
+        val requestedLocale = Locale.forLanguageTag(languageTag)
         val languageResult = engine.setLanguage(requestedLocale)
         if (languageResult == TextToSpeech.LANG_MISSING_DATA || languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
             engine.setLanguage(Locale.GERMANY)
@@ -454,6 +571,8 @@ class CyclingQuizActivity : ComponentActivity() {
         started = false
         finished = true
         mediaSession?.isActive = false
+        speakToken++
+        stopVoicePlayer()
         tts?.stop()
         statusText = "Session stopped. Your score was $correctCount out of $answerCount."
     }
@@ -474,6 +593,9 @@ class CyclingQuizActivity : ComponentActivity() {
         mediaSession?.isActive = false
         mediaSession?.release()
         mediaSession = null
+        speakToken++
+        stopVoicePlayer()
+        voiceExecutor.shutdownNow()
         tts?.stop()
         tts?.shutdown()
         tts = null

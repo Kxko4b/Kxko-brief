@@ -39,7 +39,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Daily Briefing", NotificationManager.IMPORTANCE_DEFAULT)
+                NotificationChannel(CHANNEL_ID, "Daily Briefing", NotificationManager.IMPORTANCE_HIGH).apply {\n                    description = "Kxko Daily Briefing notifications"\n                    enableVibration(true)\n                }
             )
         }
 
@@ -57,7 +57,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)\n            .setCategory(NotificationCompat.CATEGORY_REMINDER)\n            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(openApp)
             .setAutoCancel(true)
             .build()

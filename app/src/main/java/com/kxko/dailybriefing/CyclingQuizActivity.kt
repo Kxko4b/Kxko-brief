@@ -260,7 +260,7 @@ class CyclingQuizActivity : ComponentActivity() {
                             Button(
                                 onClick = {
                                     if (isSherpaTtsInstalled()) {
-                                        startActivity(Intent(Settings.ACTION_TTS_SETTINGS))
+                                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                                     } else {
                                         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://f-droid.org/packages/org.woheller69.ttsengine/")))
                                     }

@@ -1,6 +1,7 @@
 package com.kxko.dailybriefing
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -246,7 +247,10 @@ class CyclingQuizActivity : ComponentActivity() {
                             }
                             Spacer(Modifier.height(10.dp))
                             Text(
-                                "Für eine natürlichere kostenlose Stimme: Installiere SherpaTTS aus F-Droid, lade eine deutsche Stimme herunter und wähle sie danach in den Android-Sprachausgabe-Einstellungen aus. Das Quiz verwendet dann die dort ausgewählte TTS-Engine.",
+                                if (isSherpaTtsInstalled())
+                                    "SherpaTTS is installed. Choose it as your preferred speech engine, then download a German voice in SherpaTTS. It runs locally and is free to use."
+                                else
+                                    "The app currently falls back to your phone's default voice. For a free neural voice that works offline, install SherpaTTS and a German voice model first.",
                                 color = Color(0xFFB9B5AB),
                                 fontSize = 12.sp,
                                 textAlign = TextAlign.Center,
@@ -254,10 +258,16 @@ class CyclingQuizActivity : ComponentActivity() {
                             )
                             Spacer(Modifier.height(8.dp))
                             Button(
-                                onClick = { startActivity(Intent(Settings.ACTION_TEXT_TO_SPEECH_SETTINGS)) },
+                                onClick = {
+                                    if (isSherpaTtsInstalled()) {
+                                        startActivity(Intent(Settings.ACTION_TEXT_TO_SPEECH_SETTINGS))
+                                    } else {
+                                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://f-droid.org/packages/org.woheller69.ttsengine/")))
+                                    }
+                                },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF292C2F), contentColor = Color(0xFFF0EEE9))
-                            ) { Text("KI-Stimme auswählen") }
+                            ) { Text(if (isSherpaTtsInstalled()) "Choose neural voice" else "Get free neural voice") }
                         } else {
                             Spacer(Modifier.height(22.dp))
                             Text("Session complete", color = Color(0xFFC5A16B), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)

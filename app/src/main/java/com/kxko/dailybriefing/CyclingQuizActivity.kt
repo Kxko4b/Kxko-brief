@@ -260,7 +260,7 @@ class CyclingQuizActivity : ComponentActivity() {
                             Button(
                                 onClick = {
                                     if (isSherpaTtsInstalled()) {
-                                        startActivity(Intent(Settings.ACTION_TEXT_TO_SPEECH_SETTINGS))
+                                        startActivity(Intent(Settings.ACTION_TTS_SETTINGS))
                                     } else {
                                         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://f-droid.org/packages/org.woheller69.ttsengine/")))
                                     }
@@ -366,10 +366,10 @@ class CyclingQuizActivity : ComponentActivity() {
             append(next.prompt).append(" ")
             next.options.forEachIndexed { index, option -> append("$optionWord ${index + 1}. ").append(option).append(". ") }
         }
-        speak(spokenQuestion) {
+        speak(spokenQuestion, onDone = {
             acceptingAnswers = true
             statusText = "Wähle 1, 2 oder 3 mit deiner Uhr."
-        }
+        })
     }
 
     private fun submitAnswer(index: Int) {
@@ -403,9 +403,9 @@ class CyclingQuizActivity : ComponentActivity() {
             statusText = feedback
             scheduledReviews.add(ScheduledReview(question, answerCount + 3))
         }
-        speak(feedback) {
+        speak(feedback, onDone = {
             handler.postDelayed({ if (started && !isFinishing) nextQuestion() }, 800L)
-        }
+        })
     }
 
     private fun updateMediaSession() {

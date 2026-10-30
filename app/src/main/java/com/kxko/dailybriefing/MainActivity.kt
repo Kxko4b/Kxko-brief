@@ -57,6 +57,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.platform.LocalDensity
+import com.kxko.dailybriefing.ui.theme.KxBottomBar
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -155,37 +159,47 @@ class MainActivity : ComponentActivity() {
                     onSurface = CREAM
                 )
             ) {
-                Box(
+                val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(BG)
                         .safeDrawingPadding()
                         .imePadding()
                 ) {
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = { createDashboard() }
-                    )
-
-                    if (loadProgress < 1f && !loadError) {
-                        LinearProgressIndicator(
-                            progress = { loadProgress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(3.dp)
-                                .align(Alignment.TopCenter),
-                            color = BRASS,
-                            trackColor = Color.Transparent
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { createDashboard() }
                         )
-                    }
 
-                    if (loadError) {
-                        OfflineScreen(onRetry = {
-                            loadError = false
-                            webView?.loadUrl(ADMIN_URL)
+                        if (loadProgress < 1f && !loadError) {
+                            LinearProgressIndicator(
+                                progress = { loadProgress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(3.dp)
+                                    .align(Alignment.TopCenter),
+                                color = BRASS,
+                                trackColor = Color.Transparent
+                            )
+                        }
+
+                        if (loadError) {
+                            OfflineScreen(onRetry = {
+                                loadError = false
+                                webView?.loadUrl(ADMIN_URL)
+                            })
+                        }
+                    }
+                    if (!keyboardOpen) {
+                        KxBottomBar(selected = 0, onSelect = { index ->
+                            when (index) {
+                                1 -> startActivity(Intent(this@MainActivity, StudyHubActivity::class.java))
+                                2 -> startActivity(Intent(this@MainActivity, CyclingQuizActivity::class.java))
+                            }
                         })
                     }
-
                 }
             }
         }
@@ -316,6 +330,13 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface
         fun tick() {
             view.post { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
+        }
+
+        @JavascriptInterface
+        fun openStudyHub() {
+            view.post {
+                view.context.startActivity(Intent(view.context, StudyHubActivity::class.java))
+            }
         }
 
         @JavascriptInterface

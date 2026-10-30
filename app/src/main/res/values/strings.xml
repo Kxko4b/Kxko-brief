@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">Kxko Daily Briefing</string>
+    <string name="shortcut_study_short">Lernen</string>
+    <string name="shortcut_study_long">Study streak and tests</string>
+    <string name="shortcut_quiz_short">Quiz</string>
+    <string name="shortcut_quiz_long">Start the Cycling Quiz</string>
 </resources>

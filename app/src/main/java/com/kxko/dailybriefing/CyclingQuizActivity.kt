@@ -60,7 +60,8 @@ private data class QuizQuestion(
     val options: List<String>,
     val correctIndex: Int,
     val explanation: String,
-    val languageTag: String = "de-DE"
+    val languageTag: String = "de-DE",
+    val sourceId: String? = null
 )
 
 private data class ScheduledReview(val question: QuizQuestion, val dueAfterAnswer: Int)
@@ -78,6 +79,13 @@ class CyclingQuizActivity : ComponentActivity() {
     private var studyEmail by mutableStateOf("")
     private var studyPassword by mutableStateOf("")
     private val studyRepository by lazy { StudyQuizRepository(applicationContext) }
+    private val studyStats by lazy { StudyStats(applicationContext) }
+    private var statsSnapshot by mutableStateOf(
+        StudySnapshot("", 0, 0, 10, 0, 0, false, emptyList(), 0, 0, 0, 0)
+    )
+    private var signedIn by mutableStateOf(false)
+    private var pickedIndex by mutableStateOf<Int?>(null)
+    private var sessionRecorded = false
     private var started by mutableStateOf(false)
     private var acceptingAnswers by mutableStateOf(false)
     private var finished by mutableStateOf(false)
@@ -117,6 +125,8 @@ class CyclingQuizActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        signedIn = studyRepository.hasSession()
+        statsSnapshot = studyStats.snapshot()
 
         val ttsInitListener = TextToSpeech.OnInitListener { result ->
             if (result == TextToSpeech.SUCCESS) {
@@ -158,150 +168,48 @@ class CyclingQuizActivity : ComponentActivity() {
         }
 
         setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    primary = Color(0xFFC5A16B),
-                    background = Color(0xFF111315),
-                    surface = Color(0xFF1A1D20),
-                    onBackground = Color(0xFFF0EEE9),
-                    onSurface = Color(0xFFF0EEE9)
-                )
-            ) {
-                Surface(
-                    modifier = Modifier.fillMaxSize().safeDrawingPadding(),
-                    color = Color(0xFF111315)
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 18.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text("KXKO", color = Color(0xFFC5A16B), fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
-                        Spacer(Modifier.height(10.dp))
-                        Text(
-                            "Radfahr-Quiz",
-                            color = Color(0xFFF0EEE9),
-                            fontSize = 30.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "Zurück = 1  ·  Wiedergabe/Pause = 2  ·  Weiter = 3",
-                            color = Color(0xFFC5A16B),
-                            fontSize = 14.sp,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(Modifier.height(20.dp))
-                        Text(
-                            currentQuestion?.let { "${it.subject}\n\n${it.prompt}\n\n1. ${it.options[0]}\n2. ${it.options[1]}\n3. ${it.options[2]}" }
-                                ?: "Die Fragen werden vorgelesen. Wähle mit den Medientasten deiner Uhr. Falsche Antworten kommen später wieder.",
-                            color = Color(0xFFF0EEE9),
-                            fontSize = 18.sp,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 27.sp
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Text(statusText, color = Color(0xFFB9B5AB), fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 21.sp)
-                        if (started && !finished) {
-                            Spacer(Modifier.height(10.dp))
-                            Text("Answered: $answerCount  ·  Correct: $correctCount", color = Color(0xFFC5A16B), fontSize = 13.sp)
-                            Spacer(Modifier.height(16.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                listOf("1", "2", "3").forEachIndexed { index, label ->
-                                    Button(
-                                        onClick = { submitAnswer(index) },
-                                        enabled = acceptingAnswers,
-                                        modifier = Modifier.weight(1f),
-                                        shape = RoundedCornerShape(14.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC5A16B), contentColor = Color(0xFF201C15))
-                                    ) { Text(label, fontSize = 18.sp, fontWeight = FontWeight.Bold) }
-                                }
-                            }
-                            Spacer(Modifier.height(10.dp))
-                            Button(
-                                onClick = { finishQuiz() },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF292C2F), contentColor = Color(0xFFF0EEE9))
-                            ) { Text("End session") }
-                        } else if (!finished) {
-                            Spacer(Modifier.height(22.dp))
-                            OutlinedTextField(
-                                value = studyEmail,
-                                onValueChange = { studyEmail = it },
-                                label = { Text("Study app email") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedTextField(
-                                value = studyPassword,
-                                onValueChange = { studyPassword = it },
-                                label = { Text("Study app password") },
-                                singleLine = true,
-                                visualTransformation = PasswordVisualTransformation(),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Button(
-                                onClick = { loadStudyQuestions() },
-                                enabled = ttsReady && !isLoadingStudy && studyEmail.isNotBlank() && studyPassword.isNotBlank(),
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF292C2F), contentColor = Color(0xFFF0EEE9))
-                            ) {
-                                Text(if (isLoadingStudy) "Lade gespeicherte Tests …" else "Mit Study-App anmelden & Tests laden")
-                            }
-                            Spacer(Modifier.height(10.dp))
-                            Button(
-                                onClick = { startQuiz() },
-                                enabled = ttsReady && studyLoaded,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC5A16B), contentColor = Color(0xFF201C15))
-                            ) {
-                                Text(if (!ttsReady) "Stimme wird vorbereitet …" else if (!studyLoaded) "Zuerst Tests laden" else "Quiz starten", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                            Spacer(Modifier.height(10.dp))
-                            Text(
-                                if (aiVoiceEnabled) "Lebendige KI-Stimme aktiv (braucht Internet). Ohne Verbindung liest die App mit deiner Telefonstimme vor."
-                                else "Die KI-Stimme ist gerade nicht verfügbar. Die App liest mit deiner Telefonstimme vor.",
-                                color = Color(0xFFC5A16B),
-                                fontSize = 12.sp,
-                                textAlign = TextAlign.Center,
-                                lineHeight = 18.sp
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            Text(
-                                if (isSherpaTtsInstalled())
-                                    "SherpaTTS is installed. Choose it as your preferred speech engine, then download a German voice in SherpaTTS. It runs locally and is free to use."
-                                else
-                                    "The app currently falls back to your phone's default voice. For a free neural voice that works offline, install SherpaTTS and a German voice model first.",
-                                color = Color(0xFFB9B5AB),
-                                fontSize = 12.sp,
-                                textAlign = TextAlign.Center,
-                                lineHeight = 18.sp
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Button(
-                                onClick = {
-                                    if (isSherpaTtsInstalled()) {
-                                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                                    } else {
-                                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://f-droid.org/packages/org.woheller69.ttsengine/")))
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF292C2F), contentColor = Color(0xFFF0EEE9))
-                            ) { Text(if (isSherpaTtsInstalled()) "Choose neural voice" else "Get free neural voice") }
+            val card = currentQuestion?.let { QuizCardUi(it.subject, it.prompt, it.options, it.correctIndex) }
+            val snap = statsSnapshot
+            CyclingQuizScreen(
+                state = QuizScreenState(
+                    started = started,
+                    finished = finished,
+                    ttsReady = ttsReady,
+                    studyLoaded = studyLoaded,
+                    isLoadingStudy = isLoadingStudy,
+                    signedIn = signedIn,
+                    email = studyEmail,
+                    password = studyPassword,
+                    card = card,
+                    pickedIndex = pickedIndex,
+                    statusText = statusText,
+                    answerCount = answerCount,
+                    correctCount = correctCount,
+                    acceptingAnswers = acceptingAnswers,
+                    aiVoiceEnabled = aiVoiceEnabled,
+                    sherpaInstalled = isSherpaTtsInstalled(),
+                    streak = snap.streak,
+                    answeredToday = snap.answeredToday,
+                    goal = snap.goal
+                ),
+                actions = QuizScreenActions(
+                    onEmail = { studyEmail = it },
+                    onPassword = { studyPassword = it },
+                    onLoad = { loadStudyQuestions() },
+                    onStart = { startQuiz() },
+                    onAnswer = { submitAnswer(it) },
+                    onFinish = { finishQuiz() },
+                    onReset = { resetQuiz() },
+                    onSherpa = {
+                        if (isSherpaTtsInstalled()) {
+                            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                         } else {
-                            Spacer(Modifier.height(22.dp))
-                            Text("Session complete", color = Color(0xFFC5A16B), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.height(10.dp))
-                            Button(onClick = { resetQuiz() }, modifier = Modifier.fillMaxWidth()) { Text("Start another session") }
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://f-droid.org/packages/org.woheller69.ttsengine/")))
                         }
-                    }
-                }
-            }
+                    },
+                    onBack = { finish() }
+                )
+            )
         }
     }
 
@@ -322,13 +230,14 @@ class CyclingQuizActivity : ComponentActivity() {
         statusText = "Anmeldung und Tests werden geladen …"
         Thread {
             try {
-                studyRepository.signIn(studyEmail, studyPassword)
+                if (!(signedIn && studyEmail.isBlank())) studyRepository.signIn(studyEmail, studyPassword)
                 val loaded = studyRepository.loadUpcomingQuestions()
                 runOnUiThread {
                     questionBank = loaded.map { item ->
-                        QuizQuestion(item.id, item.subject, item.prompt, item.options, item.correctIndex, item.explanation)
+                        QuizQuestion(item.id, item.subject, item.prompt, item.options, item.correctIndex, item.explanation, sourceId = item.sourceId)
                     }
                     studyLoaded = true
+                    signedIn = true
                     isLoadingStudy = false
                     studyPassword = ""
                     statusText = "${questionBank.size} Fragen aus deinen gespeicherten Tests geladen. Der nächste Test kommt zuerst."
@@ -346,6 +255,8 @@ class CyclingQuizActivity : ComponentActivity() {
         if (!ttsReady || !studyLoaded || started) return
         started = true
         finished = false
+        sessionRecorded = false
+        pickedIndex = null
         answerCount = 0
         correctCount = 0
         remainingQuestions = questionBank.toMutableList()
@@ -368,12 +279,15 @@ class CyclingQuizActivity : ComponentActivity() {
             finished = true
             started = false
             currentQuestion = null
+            pickedIndex = null
+            recordSessionOnce()
             statusText = "You got $correctCount out of $answerCount questions right. Missed concepts were revisited during the session."
             speak(statusText, null)
             mediaSession?.isActive = false
             return
         }
         currentQuestion = next
+        pickedIndex = null
         statusText = "Höre dir alle drei Antworten an und drücke dann eine Taste an deiner Uhr."
         updateMediaSession()
         val spokenSubject = when (next.languageTag) {
@@ -425,6 +339,10 @@ class CyclingQuizActivity : ComponentActivity() {
         acceptingAnswers = false
         answerCount += 1
         val correct = index == question.correctIndex
+        pickedIndex = index
+        studyStats.recordAnswer(correct)
+        statsSnapshot = studyStats.snapshot()
+        question.sourceId?.let { id -> Thread { studyRepository.reportAnswer(id, correct) }.start() }
         val feedback = feedbackText(question, correct)
         if (correct) {
             correctCount += 1
@@ -570,6 +488,8 @@ class CyclingQuizActivity : ComponentActivity() {
         acceptingAnswers = false
         started = false
         finished = true
+        pickedIndex = null
+        recordSessionOnce()
         mediaSession?.isActive = false
         speakToken++
         stopVoicePlayer()
@@ -577,8 +497,16 @@ class CyclingQuizActivity : ComponentActivity() {
         statusText = "Session stopped. Your score was $correctCount out of $answerCount."
     }
 
+    private fun recordSessionOnce() {
+        if (sessionRecorded) return
+        sessionRecorded = true
+        studyStats.recordSession(answerCount, correctCount)
+        statsSnapshot = studyStats.snapshot()
+    }
+
     private fun resetQuiz() {
         finished = false
+        pickedIndex = null
         started = false
         currentQuestion = null
         statusText = if (studyLoaded) "Deine gespeicherten Tests sind bereit. Starte nur im Stillstand." else "Melde dich an, um deine gespeicherten Tests zu laden. Starte nur im Stillstand."

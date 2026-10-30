@@ -68,6 +68,7 @@ import com.google.firebase.messaging.FirebaseMessaging
 
 class MainActivity : ComponentActivity() {
 
+    private val updates by lazy { UpdateController(this) }
     private var webView: WebView? = null
     private var swipeRefresh: SwipeRefreshLayout? = null
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
@@ -193,6 +194,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     if (!keyboardOpen) {
+                        UpdateBanner(updates, Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
                         KxBottomBar(selected = 0, onSelect = { index ->
                             when (index) {
                                 1 -> startActivity(Intent(this@MainActivity, StudyHubActivity::class.java))
@@ -349,6 +351,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        updates.register()
+        updates.check(force = false)
         MyFirebaseMessagingService.onPushWhileOpen = { refreshDashboard(force = false) }
         // Coming back after a while: refresh straight away, then keep going every minute.
         handler.removeCallbacks(autoRefresh)
@@ -357,6 +361,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        updates.unregister()
         handler.removeCallbacks(autoRefresh)
         MyFirebaseMessagingService.onPushWhileOpen = null
         super.onPause()

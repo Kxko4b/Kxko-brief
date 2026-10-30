@@ -57,6 +57,7 @@ class StudyHubActivity : ComponentActivity() {
 
     private val repository by lazy { StudyQuizRepository(applicationContext) }
     private val stats by lazy { StudyStats(applicationContext) }
+    private val updates by lazy { UpdateController(this) }
 
     private var snapshot by mutableStateOf<StudySnapshot?>(null)
     private var progress by mutableStateOf<StudyProgress?>(null)
@@ -96,6 +97,21 @@ class StudyHubActivity : ComponentActivity() {
                                 onClick = { startActivity(Intent(this@StudyHubActivity, CyclingQuizActivity::class.java)) },
                                 modifier = Modifier.fillMaxWidth()
                             )
+                            UpdateBanner(updates)
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Kxko ${updates.installedName}", color = Kx.Dim, fontSize = 12.sp)
+                                    updates.message?.takeIf { updates.info == null }?.let {
+                                        Text(it, color = Kx.Muted, fontSize = 12.sp)
+                                    }
+                                }
+                                KxButton(
+                                    if (updates.checking) "Checking …" else "Check for updates",
+                                    onClick = { updates.check(force = true) },
+                                    primary = false,
+                                    enabled = !updates.checking
+                                )
+                            }
                             Spacer(Modifier.height(4.dp))
                         }
                         KxBottomBar(selected = 1, onSelect = { index -> navigate(index) })
@@ -107,9 +123,15 @@ class StudyHubActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        updates.register()
         snapshot = stats.snapshot()
         signedIn = repository.hasSession()
         if (signedIn) loadProgress()
+    }
+
+    override fun onPause() {
+        updates.unregister()
+        super.onPause()
     }
 
     private fun navigate(index: Int) {

@@ -43,7 +43,9 @@ jobs:
         id: signing
         env:
           KXKO_KEYSTORE_B64: ${{ secrets.KXKO_KEYSTORE_B64 }}
+          KXKO_PW: ${{ secrets.KXKO_KEYSTORE_PASSWORD }}
         run: |
+          echo "::notice title=Signing secrets::keystore chars=${#KXKO_KEYSTORE_B64} password chars=${#KXKO_PW}"
           if [ -n "$KXKO_KEYSTORE_B64" ]; then
             echo "$KXKO_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/kxko-release.jks"
             echo "KXKO_KEYSTORE_FILE=$RUNNER_TEMP/kxko-release.jks" >> "$GITHUB_ENV"

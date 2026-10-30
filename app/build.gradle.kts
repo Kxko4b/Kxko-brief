@@ -4,6 +4,10 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+// CI sets these so every build is signed with the same permanent key (needed for in-place updates).
+val kxkoKeystore: String? = System.getenv("KXKO_KEYSTORE_FILE")
+val kxkoBuildNumber: Int = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
+
 android {
     namespace = "com.kxko.dailybriefing"
     compileSdk {
@@ -14,13 +18,26 @@ android {
         applicationId = "com.kxko.dailybriefing"
         minSdk = 23
         targetSdk = 37
-        versionCode = 4
-        versionName = "2.2"
+        versionCode = 100 + kxkoBuildNumber
+        versionName = "2.3.$kxkoBuildNumber"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (kxkoKeystore != null) {
+            create("kxko") {
+                storeFile = file(kxkoKeystore)
+                storePassword = System.getenv("KXKO_KEYSTORE_PASSWORD")
+                keyAlias = "kxko"
+                keyPassword = System.getenv("KXKO_KEYSTORE_PASSWORD")
+            }
+        }
+    }
     buildTypes {
+        debug {
+            if (kxkoKeystore != null) signingConfig = signingConfigs.getByName("kxko")
+        }
         release {
             optimization {
                 enable = false

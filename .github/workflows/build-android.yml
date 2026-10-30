@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-debug-apk:
@@ -39,7 +39,23 @@ jobs:
           chmod +x ./gradlew
           ./gradlew --no-daemon :app:testDebugUnitTest
 
+      - name: Prepare permanent signing key
+        id: signing
+        env:
+          KXKO_KEYSTORE_B64: ${{ secrets.KXKO_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KXKO_KEYSTORE_B64" ]; then
+            echo "$KXKO_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/kxko-release.jks"
+            echo "KXKO_KEYSTORE_FILE=$RUNNER_TEMP/kxko-release.jks" >> "$GITHUB_ENV"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No signing key set: building with a temporary key (can't update over an installed app)."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build debug APK
+        env:
+          KXKO_KEYSTORE_PASSWORD: ${{ secrets.KXKO_KEYSTORE_PASSWORD }}
         run: |
           chmod +x ./gradlew
           ./gradlew --no-daemon :app:assembleDebug
@@ -51,3 +67,15 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish release for in-app updates
+        if: github.ref == 'refs/heads/master' && steps.signing.outputs.signed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CODE=$((100 + GITHUB_RUN_NUMBER))
+          cp app/build/outputs/apk/debug/*.apk kxko-daily-briefing.apk
+          gh release create "v$CODE" kxko-daily-briefing.apk \
+            --title "Kxko 2.3.$GITHUB_RUN_NUMBER" \
+            --generate-notes \
+            --latest

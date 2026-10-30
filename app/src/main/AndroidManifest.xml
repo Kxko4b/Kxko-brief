@@ -36,6 +36,12 @@
             android:theme="@style/Theme.KxkoDailyBriefing" />
 
         <activity
+            android:name=".StudyHubActivity"
+            android:exported="false"
+            android:label="Lernen"
+            android:theme="@style/Theme.KxkoDailyBriefing" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
@@ -47,6 +53,9 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
     </application>
 </manifest>

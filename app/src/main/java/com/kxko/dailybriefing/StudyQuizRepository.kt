@@ -16,8 +16,25 @@ data class StudyQuizItem(
     val prompt: String,
     val options: List<String>,
     val correctIndex: Int,
-    val explanation: String
+    val explanation: String,
+    /** The exam_questions row this item came from (null for built-in demo questions). */
+    val sourceId: String? = null
 )
+
+data class ExamProgress(
+    val id: String,
+    val subject: String,
+    val examDate: String,
+    val hasTopics: Boolean,
+    val total: Int,
+    val mastered: Int,
+    val shaky: Int,
+    val fresh: Int
+)
+
+data class WeakSpot(val subject: String, val text: String, val wrong: Int, val right: Int)
+
+data class StudyProgress(val exams: List<ExamProgress>, val weakSpots: List<WeakSpot>)
 
 /**
  * Reads existing exam questions using the user's own Supabase login.
@@ -40,6 +57,96 @@ class StudyQuizRepository(context: Context) {
 
     fun signOut() {
         prefs.edit().clear().apply()
+    }
+
+    fun hasSession(): Boolean = !prefs.getString("access_token", null).isNullOrBlank()
+
+    /** Runs [block] with the stored token and retries once with a refreshed token when it has expired. */
+    private fun <T> authed(block: (String) -> T): T {
+        val token = prefs.getString("access_token", null)
+            ?: throw IllegalStateException("Sign in to see your progress.")
+        return try {
+            block(token)
+        } catch (e: IllegalStateException) {
+            if (e.message?.contains("HTTP 401") == true) block(refreshSession()) else throw e
+        }
+    }
+
+    /** Upcoming exams with how well their questions are known, plus the questions missed most. */
+    fun loadProgress(): StudyProgress = authed { token ->
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+        val exams = request("GET",
+            "/rest/v1/exams?select=id,subject,exam_date,topics&exam_date=gte.${enc(today)}&order=exam_date.asc",
+            null, token)
+        if (exams.length() == 0) return@authed StudyProgress(emptyList(), emptyList())
+        val ids = (0 until exams.length()).joinToString(",") { exams.getJSONObject(it).getString("id") }
+        val rows = request("GET",
+            "/rest/v1/exam_questions?select=id,exam_id,kind,payload,right_count,wrong_count&exam_id=in.($ids)",
+            null, token)
+        val subjectById = HashMap<String, String>()
+        for (i in 0 until exams.length()) {
+            val e = exams.getJSONObject(i)
+            subjectById[e.getString("id")] = e.optString("subject", "Test")
+        }
+        val counts = HashMap<String, IntArray>() // exam id -> [total, mastered, shaky, fresh]
+        val weak = mutableListOf<WeakSpot>()
+        for (i in 0 until rows.length()) {
+            val row = rows.getJSONObject(i)
+            val examId = row.optString("exam_id")
+            val right = row.optInt("right_count", 0)
+            val wrong = row.optInt("wrong_count", 0)
+            val c = counts.getOrPut(examId) { IntArray(4) }
+            c[0] += 1
+            when (StudyStatsLogic.mastery(right, wrong)) {
+                Mastery.MASTERED -> c[1] += 1
+                Mastery.SHAKY -> c[2] += 1
+                Mastery.FRESH -> c[3] += 1
+            }
+            if (wrong > right) {
+                val text = weakText(row.optString("kind"), row.optJSONObject("payload"))
+                if (text.isNotEmpty()) weak.add(WeakSpot(subjectById[examId] ?: "Test", text, wrong, right))
+            }
+        }
+        val progress = (0 until exams.length()).map { i ->
+            val e = exams.getJSONObject(i)
+            val c = counts[e.getString("id")] ?: IntArray(4)
+            ExamProgress(
+                id = e.getString("id"),
+                subject = e.optString("subject", "Test"),
+                examDate = e.optString("exam_date").take(10),
+                hasTopics = e.optString("topics").isNotBlank() && e.optString("topics") != "null",
+                total = c[0], mastered = c[1], shaky = c[2], fresh = c[3]
+            )
+        }
+        StudyProgress(progress, weak.sortedByDescending { it.wrong - it.right }.take(5))
+    }
+
+    private fun weakText(kind: String, p: JSONObject?): String {
+        if (p == null) return ""
+        val text = when (kind) {
+            "choice" -> p.optString("question")
+            "cover" -> p.optString("front")
+            "match" -> {
+                val pairs = p.optJSONArray("pairs")
+                if (pairs == null) "" else (0 until minOf(pairs.length(), 3))
+                    .map { pairs.optJSONObject(it)?.optString("term").orEmpty() }
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · ")
+            }
+            else -> ""
+        }
+        return text.trim()
+    }
+
+    /** Saves one right/wrong answer on the question (best effort: a failure never interrupts the quiz). */
+    fun reportAnswer(questionId: String, correct: Boolean) {
+        try {
+            authed { token ->
+                request("POST", "/rest/v1/rpc/record_exam_answer",
+                    JSONObject().put("q_id", questionId).put("was_right", correct), token)
+            }
+        } catch (_: Exception) {
+        }
     }
 
     fun loadUpcomingQuestions(): List<StudyQuizItem> {
@@ -96,7 +203,7 @@ class StudyQuizRepository(context: Context) {
                         options.filter { it != correct }.shuffled().take(2).forEach { picked.add(it) }
                         if (picked.size < 3) continue
                         picked.shuffle()
-                        output.add(StudyQuizItem(id, subject, prompt, picked, picked.indexOf(correct), p.optString("explain")))
+                        output.add(StudyQuizItem(id, subject, prompt, picked, picked.indexOf(correct), p.optString("explain"), id))
                     }
                     "cover" -> {
                         val front = p.optString("front").trim()
@@ -105,7 +212,7 @@ class StudyQuizRepository(context: Context) {
                         val distractors = cards.map { it.second }.filter { it != back }.distinct().shuffled().take(2)
                         if (distractors.size < 2) continue
                         val options = (distractors + back).shuffled()
-                        output.add(StudyQuizItem(id, subject, front, options, options.indexOf(back), back))
+                        output.add(StudyQuizItem(id, subject, front, options, options.indexOf(back), back, id))
                     }
                     "match" -> {
                         val pairs = p.optJSONArray("pairs") ?: continue
@@ -120,7 +227,7 @@ class StudyQuizRepository(context: Context) {
                                 if (other.isNotEmpty() && other != match) distractors.add(other)
                             }
                             val options = (distractors.distinct().shuffled().take(2) + match).shuffled()
-                            if (options.size == 3) output.add(StudyQuizItem("$id-$k", subject, term, options, options.indexOf(match), "Richtig: $match"))
+                            if (options.size == 3) output.add(StudyQuizItem("$id-$k", subject, term, options, options.indexOf(match), "Richtig: $match", id))
                         }
                     }
                 }

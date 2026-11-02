@@ -30,6 +30,7 @@ class CyclingTrackerService : Service(), LocationListener {
     private lateinit var locationManager: LocationManager
     private lateinit var prefs: android.content.SharedPreferences
     private var lastLocation: Location? = null
+    private var lastRouteLocation: Location? = null
     private var distanceMetres = 0f
     private var lastNotificationUpdate = 0L
     private var locationUpdatesRunning = false
@@ -79,6 +80,7 @@ class CyclingTrackerService : Service(), LocationListener {
             .apply()
         distanceMetres = 0f
         lastLocation = null
+        lastRouteLocation = null
         startForeground(NOTIFICATION_ID, buildNotification("Armed — waiting for Mi Fitness workout…"))
         if (prefs.getBoolean(WatchWorkoutNotificationListener.KEY_ACTIVE, false)) beginLocationTracking()
     }
@@ -117,9 +119,10 @@ class CyclingTrackerService : Service(), LocationListener {
     private fun appendRoutePoint(location: Location) {
         val route = runCatching { JSONArray(prefs.getString(KEY_ROUTE_POINTS, "[]") ?: "[]") }
             .getOrDefault(JSONArray())
-        val previous = lastLocation
+        val previous = lastRouteLocation
         if (previous != null && previous.distanceTo(location) < 4f) return
         route.put(JSONArray().put(location.latitude).put(location.longitude))
+        lastRouteLocation = location
         val bounded = if (route.length() > 2500) {
             JSONArray().also { trimmed ->
                 for (index in route.length() - 2500 until route.length()) trimmed.put(route.getJSONArray(index))

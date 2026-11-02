@@ -98,8 +98,6 @@ class CyclingTrackerActivity : ComponentActivity() {
                 val satellitesVisible = remember(refresh) { prefs.getInt(CyclingTrackerService.KEY_SATELLITES_VISIBLE, 0) }
                 val satellitesUsed = remember(refresh) { prefs.getInt(CyclingTrackerService.KEY_SATELLITES_USED, 0) }
                 val splits = remember(refresh) { readSplits(prefs.getString(CyclingTrackerService.KEY_SPLITS, "[]")) }
-                val stoppedSeconds = (elapsed - movingSeconds).coerceAtLeast(0L)
-                val pace = if (speed > 0.5f) 60f / speed else 0f
                 val speedSamples = remember(refresh) { readSpeedSamples(prefs.getString(CyclingTrackerService.KEY_SPEED_HISTORY, "[]")) }
                 val rideHistory = remember(refresh) { readRideHistory(prefs.getString(CyclingTrackerService.KEY_RIDE_HISTORY, "[]")) }
                 val trackingStartedAt = remember(refresh) { prefs.getLong(CyclingTrackerService.KEY_TRACKING_STARTED_AT, 0L) }
@@ -111,6 +109,8 @@ class CyclingTrackerActivity : ComponentActivity() {
                     else -> 0L
                 }
                 val averageSpeed = if (movingSeconds > 0L) distance / movingSeconds.toFloat() * 3.6f else 0f
+                val stoppedSeconds = (elapsed - movingSeconds).coerceAtLeast(0L)
+                val pace = if (speed > 0.5f) 60f / speed else 0f
                 val hasLocation = hasLocationPermission()
                 var followLocation by remember { mutableStateOf(true) }
                 var showDetails by remember { mutableStateOf(false) }

@@ -30,6 +30,7 @@ class CyclingTrackerService : Service(), LocationListener {
     private lateinit var locationManager: LocationManager
     private lateinit var prefs: android.content.SharedPreferences
     private var lastLocation: Location? = null
+    private var lastAcceptedMovementAt = 0L
     private var lastRouteLocation: Location? = null
     private var distanceMetres = 0f
     private var lastNotificationUpdate = 0L
@@ -80,6 +81,7 @@ class CyclingTrackerService : Service(), LocationListener {
             .apply()
         distanceMetres = 0f
         lastLocation = null
+        lastAcceptedMovementAt = 0L
         lastRouteLocation = null
         startForeground(NOTIFICATION_ID, buildNotification("Armed — waiting for Mi Fitness workout…"))
         if (prefs.getBoolean(WatchWorkoutNotificationListener.KEY_ACTIVE, false)) beginLocationTracking()
@@ -107,8 +109,8 @@ class CyclingTrackerService : Service(), LocationListener {
             }
             locationManager.requestLocationUpdates(provider, 1000L, 1f, this)
             locationUpdatesRunning = true
-            locationManager.getLastKnownLocation(provider)?.let(::onLocationChanged)
-            updateNotification("GPS active — waiting for location fix…")
+            // Cached fixes can be minutes old and create fake distance jumps at startup.
+            updateNotification("GPS active — waiting for a fresh location fix…")
         } catch (_: SecurityException) {
             updateNotification("Location permission needed — open Kxko Cycling")
         } catch (_: IllegalArgumentException) {
@@ -133,14 +135,26 @@ class CyclingTrackerService : Service(), LocationListener {
 
     override fun onLocationChanged(location: Location) {
         val previous = lastLocation
-        if (previous != null) {
+        val now = System.currentTimeMillis()
+        var speedKmh = 0f
+        if (previous != null && location.accuracy <= 25f && previous.accuracy <= 35f) {
             val segment = previous.distanceTo(location)
-            if (segment in 1f..150f && location.accuracy <= 50f) distanceMetres += segment
+            val elapsedSeconds = ((location.time - previous.time).coerceAtLeast(1L)) / 1000f
+            val measuredSpeed = segment / elapsedSeconds
+            // GPS can wander several metres while the phone is stationary.
+            // Require meaningful displacement and plausible cycling speed.
+            val movementThreshold = maxOf(6f, location.accuracy * 0.75f)
+            if (segment >= movementThreshold && measuredSpeed in 1.0f..16.7f && segment <= 100f) {
+                distanceMetres += segment
+                speedKmh = measuredSpeed * 3.6f
+                lastAcceptedMovementAt = now
+                if (location.accuracy <= 20f) appendRoutePoint(location)
+            }
         }
         lastLocation = location
-        val speedKmh = if (location.hasSpeed() && location.accuracy <= 50f) location.speed * 3.6f else 0f
+        // Ignore isolated GPS speed spikes; show zero after four seconds without confirmed movement.
+        if (lastAcceptedMovementAt == 0L || now - lastAcceptedMovementAt > 4000L) speedKmh = 0f
         val maxSpeed = maxOf(prefs.getFloat(KEY_MAX_SPEED, 0f), speedKmh)
-        if (location.accuracy <= 35f) appendRoutePoint(location)
         prefs.edit()
             .putFloat(KEY_DISTANCE, distanceMetres)
             .putFloat(KEY_SPEED, speedKmh)

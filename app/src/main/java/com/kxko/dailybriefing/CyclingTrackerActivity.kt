@@ -47,7 +47,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 
 private data class RidePoint(val latitude: Double, val longitude: Double)
-private data class RideSummary(val startedAt: Long, val distanceMetres: Float, val movingSeconds: Long, val maxSpeed: Float, val elevationGain: Float)
+private data class RideSummary(val startedAt: Long, val distanceMetres: Float, val elapsedSeconds: Long, val movingSeconds: Long, val maxSpeed: Float, val elevationGain: Float)
 
 class CyclingTrackerActivity : ComponentActivity() {
     private var refresh by mutableIntStateOf(0)
@@ -92,9 +92,13 @@ class CyclingTrackerActivity : ComponentActivity() {
                 val speedSamples = remember(refresh) { readSpeedSamples(prefs.getString(CyclingTrackerService.KEY_SPEED_HISTORY, "[]")) }
                 val rideHistory = remember(refresh) { readRideHistory(prefs.getString(CyclingTrackerService.KEY_RIDE_HISTORY, "[]")) }
                 val trackingStartedAt = remember(refresh) { prefs.getLong(CyclingTrackerService.KEY_TRACKING_STARTED_AT, 0L) }
+                val trackingEndedAt = remember(refresh) { prefs.getLong(CyclingTrackerService.KEY_TRACKING_ENDED_AT, 0L) }
                 val route = remember(refresh) { readRoute(prefs.getString(CyclingTrackerService.KEY_ROUTE_POINTS, "[]")) }
-                val elapsed = if (tracking && trackingStartedAt > 0L)
-                    ((System.currentTimeMillis() - trackingStartedAt) / 1000L).coerceAtLeast(0L) else 0L
+                val elapsed = when {
+                    tracking && trackingStartedAt > 0L -> ((System.currentTimeMillis() - trackingStartedAt) / 1000L).coerceAtLeast(0L)
+                    !tracking && trackingStartedAt > 0L && trackingEndedAt >= trackingStartedAt -> ((trackingEndedAt - trackingStartedAt) / 1000L).coerceAtLeast(0L)
+                    else -> 0L
+                }
                 val averageSpeed = if (movingSeconds > 0L) distance / movingSeconds.toFloat() * 3.6f else 0f
                 val hasLocation = hasLocationPermission()
                 var followLocation by remember { mutableStateOf(true) }
@@ -304,7 +308,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                                         rideHistory.asReversed().forEach { ride ->
                                             Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                                                 Text(SimpleDateFormat("dd MMM yyyy · HH:mm", Locale.getDefault()).format(Date(ride.startedAt)), color = Kx.Brass, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                                Text(String.format(Locale.getDefault(), "%.2f km  ·  %s moving  ·  %.1f km/h max  ·  +%.0f m", ride.distanceMetres / 1000f, formatDuration(ride.movingSeconds), ride.maxSpeed, ride.elevationGain), color = Kx.Cream, fontSize = 12.sp)
+                                                Text(String.format(Locale.getDefault(), "%.2f km  ·  %s elapsed  ·  %s moving  ·  %.1f km/h max  ·  +%.0f m", ride.distanceMetres / 1000f, formatDuration(ride.elapsedSeconds), formatDuration(ride.movingSeconds), ride.maxSpeed, ride.elevationGain), color = Kx.Cream, fontSize = 12.sp)
                                             }
                                         }
                                     }
@@ -336,7 +340,7 @@ class CyclingTrackerActivity : ComponentActivity() {
             val array = JSONArray(raw)
             (0 until array.length()).mapNotNull { i ->
                 val item = array.optJSONObject(i) ?: return@mapNotNull null
-                RideSummary(item.optLong("startedAt"), item.optDouble("distance").toFloat(), item.optLong("movingSeconds"), item.optDouble("maxSpeed").toFloat(), item.optDouble("elevationGain").toFloat())
+                RideSummary(item.optLong("startedAt"), item.optDouble("distance").toFloat(), item.optLong("elapsedSeconds"), item.optLong("movingSeconds"), item.optDouble("maxSpeed").toFloat(), item.optDouble("elevationGain").toFloat())
             }
         }.getOrDefault(emptyList())
     }

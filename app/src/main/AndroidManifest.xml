@@ -40,6 +40,22 @@
             </intent-filter>
         </service>
 
+        <service
+            android:name=".WatchWorkoutNotificationListener"
+            android:label="Mi Fitness workout detection"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <activity
+            android:name=".CyclingTrackerActivity"
+            android:exported="false"
+            android:label="Cycling"
+            android:theme="@style/Theme.KxkoDailyBriefing" />
+
         <activity
             android:name=".CyclingQuizActivity"
             android:exported="false"

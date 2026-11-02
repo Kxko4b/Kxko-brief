@@ -207,10 +207,10 @@ fun StackedBar(mastered: Int, shaky: Int, fresh: Int, modifier: Modifier = Modif
     }
 }
 
-/** Bottom navigation shared by the dashboard and the study hub. 0 = Dashboard, 1 = Lernen, 2 = Quiz. */
+/** Bottom navigation shared by the dashboard and study tools. */
 @Composable
 fun KxBottomBar(selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
-    val items = listOf("📊" to "Dashboard", "🎓" to "Lernen", "🚲" to "Quiz")
+    val items = listOf("📊" to "Dashboard", "🎓" to "Lernen", "🚲" to "Quiz", "🗺️" to "Cycling")
     Column(modifier = modifier.fillMaxWidth().background(Kx.Surface)) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(Kx.Line))
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
@@ -227,7 +227,7 @@ fun KxBottomBar(selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Mod
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
                             .background(if (active) Kx.BrassSoft else Color.Transparent)
-                            .padding(horizontal = 18.dp, vertical = 2.dp)
+                            .padding(horizontal = 10.dp, vertical = 2.dp)
                     ) {
                         Text(item.first, fontSize = 18.sp)
                     }

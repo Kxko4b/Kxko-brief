@@ -199,6 +199,7 @@ class MainActivity : ComponentActivity() {
                             when (index) {
                                 1 -> startActivity(Intent(this@MainActivity, StudyHubActivity::class.java))
                                 2 -> startActivity(Intent(this@MainActivity, CyclingQuizActivity::class.java))
+                                3 -> startActivity(Intent(this@MainActivity, CyclingTrackerActivity::class.java))
                             }
                         })
                     }

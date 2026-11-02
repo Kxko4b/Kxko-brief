@@ -86,6 +86,7 @@ class CyclingTrackerService : Service(), LocationListener {
             .putString(KEY_SPEED_HISTORY, "[]")
             .putString(KEY_ROUTE_POINTS, "[]")
             .putLong(KEY_TRACKING_STARTED_AT, 0L)
+            .putLong(KEY_TRACKING_ENDED_AT, 0L)
             .putBoolean(KEY_TRACKING, false)
             .apply()
         distanceMetres = 0f
@@ -168,7 +169,8 @@ class CyclingTrackerService : Service(), LocationListener {
                     val previousAltitude = lastAltitude
                     if (previousAltitude != null) {
                         val climb = altitude - previousAltitude
-                        if (climb in 1.0..30.0) elevationGainMetres += climb.toFloat()
+                        val verticalAccuracyGood = Build.VERSION.SDK_INT < 26 || (location.hasVerticalAccuracy() && location.verticalAccuracyMeters <= 10f)
+                        if (verticalAccuracyGood && climb in 2.5..25.0) elevationGainMetres += climb.toFloat()
                     }
                     lastAltitude = altitude
                 }
@@ -220,9 +222,12 @@ class CyclingTrackerService : Service(), LocationListener {
         val compactRoute = JSONArray()
         val step = maxOf(1, route.length() / 600)
         for (index in 0 until route.length() step step) compactRoute.put(route.getJSONArray(index))
+        val startedAt = prefs.getLong(KEY_TRACKING_STARTED_AT, System.currentTimeMillis())
+        val endedAt = System.currentTimeMillis()
         val ride = JSONObject()
-            .put("startedAt", prefs.getLong(KEY_TRACKING_STARTED_AT, System.currentTimeMillis()))
-            .put("endedAt", System.currentTimeMillis())
+            .put("startedAt", startedAt)
+            .put("endedAt", endedAt)
+            .put("elapsedSeconds", ((endedAt - startedAt).coerceAtLeast(0L)) / 1000L)
             .put("distance", distanceMetres)
             .put("movingSeconds", movingSeconds)
             .put("maxSpeed", prefs.getFloat(KEY_MAX_SPEED, 0f))
@@ -242,6 +247,7 @@ class CyclingTrackerService : Service(), LocationListener {
         prefs.edit()
             .putBoolean(KEY_TRACKING, false)
             .putBoolean(KEY_ARMED, false)
+            .putLong(KEY_TRACKING_ENDED_AT, System.currentTimeMillis())
             .putFloat(KEY_SPEED, 0f)
             .apply()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) stopForeground(STOP_FOREGROUND_REMOVE)
@@ -297,6 +303,7 @@ class CyclingTrackerService : Service(), LocationListener {
         const val KEY_ROUTE_POINTS = "cycling_route_points"
         const val KEY_LAST_FIX = "cycling_last_fix"
         const val KEY_TRACKING_STARTED_AT = "cycling_tracking_started_at"
+        const val KEY_TRACKING_ENDED_AT = "cycling_tracking_ended_at"
         const val KEY_MOVING_SECONDS = "cycling_moving_seconds"
         const val KEY_ELEVATION_GAIN = "cycling_elevation_gain"
         const val KEY_CURRENT_ALTITUDE = "cycling_current_altitude"

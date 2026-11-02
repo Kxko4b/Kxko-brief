@@ -237,17 +237,15 @@ class StudyQuizRepository(context: Context) {
         return output.distinctBy { it.id }
     }
 
-    /**
-     * Asks the quiz-voice function for lively AI speech (WAV bytes). Returns null whenever the AI voice is not available
-     * (offline, no credit, not signed in), so the caller can fall back to the phone's own voice.
-     */
-    fun synthesize(text: String, languageTag: String): ByteArray? {
-        var token = prefs.getString("access_token", null) ?: return null
+    /** Requests ElevenLabs speech. Throws a readable error instead of silently returning null. */
+    fun synthesize(text: String, languageTag: String): ByteArray {
+        var token = prefs.getString("access_token", null)
+            ?: throw IllegalStateException("No saved login. Sign in again to use ElevenLabs.")
         for (attempt in 0..1) {
             val conn = (URL("$baseUrl/functions/v1/quiz-voice").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
-                connectTimeout = 15000
-                readTimeout = 50000
+                connectTimeout = 20000
+                readTimeout = 60000
                 doOutput = true
                 setRequestProperty("apikey", publishableKey)
                 setRequestProperty("Authorization", "Bearer $token")
@@ -259,20 +257,30 @@ class StudyQuizRepository(context: Context) {
                 val code = conn.responseCode
                 if (code == 200) {
                     val bytes = conn.inputStream.use { it.readBytes() }
-                    return if (bytes.size > 1000) bytes else null
+                    if (bytes.size < 1000 || bytes[0] != 0x52.toByte() || bytes[1] != 0x49.toByte() ||
+                        bytes[2] != 0x46.toByte() || bytes[3] != 0x46.toByte()) {
+                        throw IllegalStateException("ElevenLabs returned an invalid or empty WAV audio file.")
+                    }
+                    return bytes
                 }
+                val errorBody = (conn.errorStream ?: conn.inputStream).bufferedReader().use { it.readText() }
+                val detail = try {
+                    val json = JSONObject(errorBody)
+                    json.optString("reason").ifBlank { json.optString("error").ifBlank { errorBody.take(220) } }
+                } catch (_: Exception) { errorBody.take(220) }
                 if (code == 401 && attempt == 0) {
-                    token = try { refreshSession() } catch (_: Exception) { return null }
+                    token = refreshSession()
                     continue
                 }
-                return null
-            } catch (_: Exception) {
-                return null
+                throw IllegalStateException("Voice server HTTP $code: ${detail.ifBlank { "No details returned" }}")
+            } catch (error: Exception) {
+                if (error is IllegalStateException) throw error
+                throw IllegalStateException("Could not contact ElevenLabs voice server: ${error.message ?: error.javaClass.simpleName}")
             } finally {
                 conn.disconnect()
             }
         }
-        return null
+        throw IllegalStateException("Your sign-in expired. Sign in again.")
     }
 
     private fun loadExams(token: String): JSONArray {

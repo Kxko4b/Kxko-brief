@@ -138,20 +138,25 @@ class CyclingTrackerService : Service(), LocationListener {
         val now = System.currentTimeMillis()
         var speedKmh = 0f
         if (previous != null && location.accuracy <= 25f && previous.accuracy <= 35f) {
+            // Compare against the last accepted fix, not every noisy one-second fix.
+            // This lets slow cycling accumulate enough displacement to be recognised.
             val segment = previous.distanceTo(location)
             val elapsedSeconds = ((location.time - previous.time).coerceAtLeast(1L)) / 1000f
             val measuredSpeed = segment / elapsedSeconds
-            // GPS can wander several metres while the phone is stationary.
-            // Require meaningful displacement and plausible cycling speed.
-            val movementThreshold = maxOf(6f, location.accuracy * 0.75f)
-            if (segment >= movementThreshold && measuredSpeed in 1.0f..16.7f && segment <= 100f) {
+            val movementThreshold = maxOf(8f, location.accuracy * 1.2f)
+            if (segment >= movementThreshold && measuredSpeed in 0.8f..16.7f && segment <= 120f) {
                 distanceMetres += segment
                 speedKmh = measuredSpeed * 3.6f
                 lastAcceptedMovementAt = now
                 if (location.accuracy <= 20f) appendRoutePoint(location)
+                lastLocation = location
+            } else if (segment >= movementThreshold || elapsedSeconds > 30f) {
+                // Large but implausibly slow drift is GPS wander; reset the anchor.
+                lastLocation = location
             }
+        } else {
+            lastLocation = location
         }
-        lastLocation = location
         // Ignore isolated GPS speed spikes; show zero after four seconds without confirmed movement.
         if (lastAcceptedMovementAt == 0L || now - lastAcceptedMovementAt > 4000L) speedKmh = 0f
         val maxSpeed = maxOf(prefs.getFloat(KEY_MAX_SPEED, 0f), speedKmh)

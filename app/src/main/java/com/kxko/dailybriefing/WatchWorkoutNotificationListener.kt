@@ -1,16 +1,12 @@
 package com.kxko.dailybriefing
 
-import android.Manifest
 import android.app.Notification
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import androidx.core.content.ContextCompat
 
 /**
  * Watches Mi Fitness workout notifications. Notification contents are inspected in memory only.
@@ -63,24 +59,8 @@ class WatchWorkoutNotificationListener : NotificationListenerService() {
                     .putString(KEY_LAST_EVENT, "Mi Fitness: $title")
                     .apply()
 
-                // Start GPS immediately if permission was granted beforehand.
-                val hasLocation = ContextCompat.checkSelfPermission(
-                    this, Manifest.permission.ACCESS_FINE_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED ||
-                    ContextCompat.checkSelfPermission(
-                        this, Manifest.permission.ACCESS_COARSE_LOCATION
-                    ) == PackageManager.PERMISSION_GRANTED
-                if (hasLocation) {
-                    val serviceIntent = Intent(this, CyclingTrackerService::class.java)
-                        .setAction(CyclingTrackerService.ACTION_START)
-                    try {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent)
-                        else startService(serviceIntent)
-                        prefs.edit().putBoolean(KEY_PENDING_START, false).apply()
-                    } catch (_: Exception) {
-                        // The tracker screen will offer a manual start if Android blocks the launch.
-                    }
-                }
+                // The tracker is armed by the user while Kxko is visible. Signal its
+                // already-running foreground service instead of starting a location FGS in the background.
                 sendBroadcast(Intent(ACTION_WORKOUT_STARTED).setPackage(packageName))
             }
         }

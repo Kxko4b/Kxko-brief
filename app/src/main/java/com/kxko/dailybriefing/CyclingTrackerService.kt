@@ -20,6 +20,7 @@ import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import java.util.Locale
+import org.json.JSONArray
 
 /**
  * User-armed foreground GPS tracker. It waits for Mi Fitness's workout signal,
@@ -71,7 +72,10 @@ class CyclingTrackerService : Service(), LocationListener {
             .putBoolean(KEY_ARMED, true)
             .putFloat(KEY_DISTANCE, 0f)
             .putFloat(KEY_SPEED, 0f)
+            .putFloat(KEY_MAX_SPEED, 0f)
+            .putString(KEY_ROUTE_POINTS, "[]")
             .putLong(KEY_TRACKING_STARTED_AT, 0L)
+            .putBoolean(KEY_TRACKING, false)
             .apply()
         distanceMetres = 0f
         lastLocation = null
@@ -110,6 +114,20 @@ class CyclingTrackerService : Service(), LocationListener {
         }
     }
 
+    private fun appendRoutePoint(location: Location) {
+        val route = runCatching { JSONArray(prefs.getString(KEY_ROUTE_POINTS, "[]") ?: "[]") }
+            .getOrDefault(JSONArray())
+        val previous = lastLocation
+        if (previous != null && previous.distanceTo(location) < 4f) return
+        route.put(JSONArray().put(location.latitude).put(location.longitude))
+        val bounded = if (route.length() > 2500) {
+            JSONArray().also { trimmed ->
+                for (index in route.length() - 2500 until route.length()) trimmed.put(route.getJSONArray(index))
+            }
+        } else route
+        prefs.edit().putString(KEY_ROUTE_POINTS, bounded.toString()).apply()
+    }
+
     override fun onLocationChanged(location: Location) {
         val previous = lastLocation
         if (previous != null) {
@@ -118,9 +136,12 @@ class CyclingTrackerService : Service(), LocationListener {
         }
         lastLocation = location
         val speedKmh = if (location.hasSpeed() && location.accuracy <= 50f) location.speed * 3.6f else 0f
+        val maxSpeed = maxOf(prefs.getFloat(KEY_MAX_SPEED, 0f), speedKmh)
+        if (location.accuracy <= 35f) appendRoutePoint(location)
         prefs.edit()
             .putFloat(KEY_DISTANCE, distanceMetres)
             .putFloat(KEY_SPEED, speedKmh)
+            .putFloat(KEY_MAX_SPEED, maxSpeed)
             .putLong(KEY_LAST_FIX, System.currentTimeMillis())
             .apply()
 
@@ -189,6 +210,8 @@ class CyclingTrackerService : Service(), LocationListener {
         const val KEY_TRACKING = "cycling_gps_tracking"
         const val KEY_DISTANCE = "cycling_distance_metres"
         const val KEY_SPEED = "cycling_speed_kmh"
+        const val KEY_MAX_SPEED = "cycling_max_speed_kmh"
+        const val KEY_ROUTE_POINTS = "cycling_route_points"
         const val KEY_LAST_FIX = "cycling_last_fix"
         const val KEY_TRACKING_STARTED_AT = "cycling_tracking_started_at"
         private const val CHANNEL_ID = "cycling_tracking"

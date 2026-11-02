@@ -122,6 +122,7 @@ class CyclingTrackerService : Service(), LocationListener {
             .putInt(KEY_SATELLITES_VISIBLE, 0)
             .putInt(KEY_SATELLITES_USED, 0)
             .putString(KEY_SPLITS, "[]")
+            .putString(KEY_START_COORDINATES, "")
             .putString(KEY_SPEED_HISTORY, "[]")
             .putString(KEY_ROUTE_POINTS, "[]")
             .putLong(KEY_TRACKING_STARTED_AT, 0L)
@@ -132,12 +133,12 @@ class CyclingTrackerService : Service(), LocationListener {
         movingSeconds = 0L
         elevationGainMetres = 0f
         lastAltitude = null
-        lastAcceptedAltitude = null
         currentGradePercent = 0f
         currentSplitDistance = 0f
         currentSplitMovingSeconds = 0L
         currentSplitMaxSpeed = 0f
         nextSplitKm = 1
+        while (splitRecords.length() > 0) splitRecords.remove(0)
         splitRecords.put(JSONObject().put("km", 0).put("timeSeconds", 0).put("maxSpeed", 0))
         lastLocation = null
         lastAcceptedMovementAt = 0L

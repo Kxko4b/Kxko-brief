@@ -61,6 +61,7 @@ data class QuizScreenState(
     val card: QuizCardUi?,
     val pickedIndex: Int?,
     val statusText: String,
+    val voiceError: String,
     val answerCount: Int,
     val correctCount: Int,
     val acceptingAnswers: Boolean,
@@ -77,6 +78,7 @@ class QuizScreenActions(
     val onLoad: () -> Unit,
     val onStart: () -> Unit,
     val onAnswer: (Int) -> Unit,
+    val onRetryVoice: () -> Unit,
     val onFinish: () -> Unit,
     val onReset: () -> Unit,
     val onSherpa: () -> Unit,
@@ -265,6 +267,15 @@ private fun RunningView(state: QuizScreenState, actions: QuizScreenActions) {
     }
 
     Text(state.statusText, color = Kx.Muted, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 21.sp, modifier = Modifier.fillMaxWidth())
+    if (state.voiceError.isNotBlank()) {
+        KxCard {
+            KxLabel("ELEVENLABS ERROR")
+            Spacer(Modifier.height(6.dp))
+            Text(state.voiceError, color = Kx.Bad, fontSize = 13.sp, lineHeight = 19.sp)
+            Spacer(Modifier.height(10.dp))
+            KxButton("Retry ElevenLabs", onClick = actions.onRetryVoice, modifier = Modifier.fillMaxWidth())
+        }
+    }
     KxButton("End session", onClick = actions.onFinish, primary = false, modifier = Modifier.fillMaxWidth())
 }
 

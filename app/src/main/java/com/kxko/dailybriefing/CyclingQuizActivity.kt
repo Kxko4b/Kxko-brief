@@ -85,6 +85,10 @@ class CyclingQuizActivity : ComponentActivity() {
     private var finished by mutableStateOf(false)
     private var currentQuestion by mutableStateOf<QuizQuestion?>(null)
     private var statusText by mutableStateOf("Bitte nur im Stillstand starten. Achte beim Radfahren immer auf den Verkehr.")
+    private var voiceError by mutableStateOf("")
+    private var retryVoiceText: String? = null
+    private var retryVoiceLanguage: String? = null
+    private var retryVoiceCompletion: (() -> Unit)? = null
     private var answerCount by mutableStateOf(0)
     private var correctCount by mutableStateOf(0)
     private var utteranceNumber = 0
@@ -149,6 +153,7 @@ class CyclingQuizActivity : ComponentActivity() {
                     card = card,
                     pickedIndex = pickedIndex,
                     statusText = statusText,
+                    voiceError = voiceError,
                     answerCount = answerCount,
                     correctCount = correctCount,
                     acceptingAnswers = acceptingAnswers,
@@ -164,6 +169,7 @@ class CyclingQuizActivity : ComponentActivity() {
                     onLoad = { loadStudyQuestions() },
                     onStart = { startQuiz() },
                     onAnswer = { submitAnswer(it) },
+                    onRetryVoice = { retryVoice() },
                     onFinish = { finishQuiz() },
                     onReset = { resetQuiz() },
                     onSherpa = {},
@@ -334,23 +340,41 @@ class CyclingQuizActivity : ComponentActivity() {
     private fun speak(text: String, onDone: (() -> Unit)? = null, languageTag: String? = currentQuestion?.languageTag) {
         val lang = languageTag ?: "de-DE"
         val token = ++speakToken
+        retryVoiceText = text
+        retryVoiceLanguage = lang
+        retryVoiceCompletion = onDone
+        voiceError = ""
         stopVoicePlayer()
         statusText = "Generating ElevenLabs voice…"
         Thread {
             val bytes = fetchVoice(text, lang)
+            val errorDetail = lastVoiceError
             runOnUiThread {
                 if (token != speakToken || isFinishing) return@runOnUiThread
                 if (bytes == null) {
-                    statusText = "ElevenLabs voice unavailable: ${lastVoiceError.ifBlank { "Unknown error" }}. Check the connection and try again."
-                    onDone?.invoke()
+                    voiceError = errorDetail.ifBlank { "Unknown ElevenLabs error. Please retry." }
+                    statusText = "ElevenLabs voice failed. Read the error below and tap Retry ElevenLabs."
                 } else {
-                    playVoice(bytes, onFail = {
-                        statusText = "ElevenLabs audio was generated but could not be played. Please retry."
+                    playVoice(bytes, onFail = { detail ->
+                        voiceError = detail
+                        statusText = "ElevenLabs audio could not be played. Tap Retry ElevenLabs."
+                    }, onDone = {
+                        voiceError = ""
+                        retryVoiceText = null
+                        retryVoiceLanguage = null
+                        retryVoiceCompletion = null
                         onDone?.invoke()
-                    }, onDone = onDone)
+                    })
                 }
             }
         }.start()
+    }
+
+    private fun retryVoice() {
+        val text = retryVoiceText ?: return
+        val lang = retryVoiceLanguage ?: "de-DE"
+        val completion = retryVoiceCompletion
+        speak(text, completion, lang)
     }
 
     private fun fetchVoice(text: String, lang: String): ByteArray? {
@@ -366,7 +390,7 @@ class CyclingQuizActivity : ComponentActivity() {
                 })
             }
         }
-        return try { future.get() } catch (_: Exception) { null }
+        return try { future.get() } catch (error: Exception) { lastVoiceError = error.cause?.message ?: error.message ?: error.javaClass.simpleName; null }
     }
 
     private fun prefetchVoice(text: String, lang: String) {
@@ -374,7 +398,7 @@ class CyclingQuizActivity : ComponentActivity() {
         Thread { fetchVoice(text, lang) }.start()
     }
 
-    private fun playVoice(bytes: ByteArray, onFail: () -> Unit, onDone: (() -> Unit)?) {
+    private fun playVoice(bytes: ByteArray, onFail: (String) -> Unit, onDone: (() -> Unit)?) {
         try {
             val file = File(cacheDir, "kxko-voice-${++utteranceNumber}.wav")
             file.writeBytes(bytes)
@@ -394,17 +418,17 @@ class CyclingQuizActivity : ComponentActivity() {
                 file.delete()
                 onDone?.invoke()
             }
-            player.setOnErrorListener { mp, _, _ ->
+            player.setOnErrorListener { mp, what, extra ->
                 mp.release()
                 if (voicePlayer === mp) voicePlayer = null
                 file.delete()
-                onFail()
+                onFail("Android audio playback error (what=$what, extra=$extra).")
                 true
             }
             player.prepareAsync()
-        } catch (_: Exception) {
+        } catch (error: Exception) {
             stopVoicePlayer()
-            onFail()
+            onFail("Audio playback setup failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 

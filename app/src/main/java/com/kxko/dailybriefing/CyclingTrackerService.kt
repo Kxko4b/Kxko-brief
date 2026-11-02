@@ -60,13 +60,21 @@ class CyclingTrackerService : Service(), LocationListener {
                 startForeground(NOTIFICATION_ID, buildNotification("Starting GPS…"))
                 beginLocationTracking()
             }
+            null -> if (prefs.getBoolean(KEY_ARMED, false)) armForWorkout()
         }
         return START_STICKY
     }
 
     private fun armForWorkout() {
         createChannel()
-        prefs.edit().putBoolean(KEY_ARMED, true).apply()
+        prefs.edit()
+            .putBoolean(KEY_ARMED, true)
+            .putFloat(KEY_DISTANCE, 0f)
+            .putFloat(KEY_SPEED, 0f)
+            .putLong(KEY_TRACKING_STARTED_AT, 0L)
+            .apply()
+        distanceMetres = 0f
+        lastLocation = null
         startForeground(NOTIFICATION_ID, buildNotification("Armed — waiting for Mi Fitness workout…"))
         if (prefs.getBoolean(WatchWorkoutNotificationListener.KEY_ACTIVE, false)) beginLocationTracking()
     }
@@ -81,6 +89,9 @@ class CyclingTrackerService : Service(), LocationListener {
         }
 
         distanceMetres = prefs.getFloat(KEY_DISTANCE, 0f)
+        if (prefs.getLong(KEY_TRACKING_STARTED_AT, 0L) == 0L) {
+            prefs.edit().putLong(KEY_TRACKING_STARTED_AT, System.currentTimeMillis()).apply()
+        }
         prefs.edit().putBoolean(KEY_TRACKING, true).apply()
         try {
             val provider = if (fine && locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
@@ -179,6 +190,7 @@ class CyclingTrackerService : Service(), LocationListener {
         const val KEY_DISTANCE = "cycling_distance_metres"
         const val KEY_SPEED = "cycling_speed_kmh"
         const val KEY_LAST_FIX = "cycling_last_fix"
+        const val KEY_TRACKING_STARTED_AT = "cycling_tracking_started_at"
         private const val CHANNEL_ID = "cycling_tracking"
         private const val NOTIFICATION_ID = 648
     }

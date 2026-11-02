@@ -10,13 +10,20 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -36,8 +43,11 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import java.util.Locale
+import java.text.SimpleDateFormat
+import java.util.Date
 
 private data class RidePoint(val latitude: Double, val longitude: Double)
+private data class RideSummary(val startedAt: Long, val distanceMetres: Float, val movingSeconds: Long, val maxSpeed: Float, val elevationGain: Float)
 
 class CyclingTrackerActivity : ComponentActivity() {
     private var refresh by mutableIntStateOf(0)
@@ -75,13 +85,21 @@ class CyclingTrackerActivity : ComponentActivity() {
                 val distance = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_DISTANCE, 0f) }
                 val speed = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_SPEED, 0f) }
                 val maxSpeed = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_MAX_SPEED, 0f) }
+                val movingSeconds = remember(refresh) { prefs.getLong(CyclingTrackerService.KEY_MOVING_SECONDS, 0L) }
+                val elevationGain = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_ELEVATION_GAIN, 0f) }
+                val altitude = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_CURRENT_ALTITUDE, 0f) }
+                val gpsAccuracy = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_GPS_ACCURACY, -1f) }
+                val speedSamples = remember(refresh) { readSpeedSamples(prefs.getString(CyclingTrackerService.KEY_SPEED_HISTORY, "[]")) }
+                val rideHistory = remember(refresh) { readRideHistory(prefs.getString(CyclingTrackerService.KEY_RIDE_HISTORY, "[]")) }
                 val trackingStartedAt = remember(refresh) { prefs.getLong(CyclingTrackerService.KEY_TRACKING_STARTED_AT, 0L) }
                 val route = remember(refresh) { readRoute(prefs.getString(CyclingTrackerService.KEY_ROUTE_POINTS, "[]")) }
                 val elapsed = if (tracking && trackingStartedAt > 0L)
                     ((System.currentTimeMillis() - trackingStartedAt) / 1000L).coerceAtLeast(0L) else 0L
-                val averageSpeed = if (elapsed > 0L) distance / elapsed.toFloat() * 3.6f else 0f
+                val averageSpeed = if (movingSeconds > 0L) distance / movingSeconds.toFloat() * 3.6f else 0f
                 val hasLocation = hasLocationPermission()
                 var followLocation by remember { mutableStateOf(true) }
+                var showDetails by remember { mutableStateOf(false) }
+                var showHistory by remember { mutableStateOf(false) }
 
                 LaunchedEffect(tracking) {
                     while (tracking) {
@@ -167,7 +185,8 @@ class CyclingTrackerActivity : ComponentActivity() {
                     }
 
                     Column(
-                        Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = 560.dp)
+                            .verticalScroll(rememberScrollState())
                             .background(Kx.Surface.copy(alpha = 0.98f), RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
                             .padding(start = 20.dp, end = 20.dp, top = 17.dp, bottom = 18.dp)
                     ) {
@@ -203,9 +222,31 @@ class CyclingTrackerActivity : ComponentActivity() {
                         }
                         Spacer(Modifier.height(12.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SecondaryMetric("AVG SPEED", String.format(Locale.getDefault(), "%.1f km/h", averageSpeed), Modifier.weight(1f))
-                            SecondaryMetric("TOP SPEED", String.format(Locale.getDefault(), "%.1f km/h", maxSpeed), Modifier.weight(1f))
-                            SecondaryMetric("GPS POINTS", route.size.toString(), Modifier.weight(1f))
+                            SecondaryMetric("AVG MOVING", String.format(Locale.getDefault(), "%.1f km/h", averageSpeed), Modifier.weight(1f))
+                            SecondaryMetric("MOVING TIME", formatDuration(movingSeconds), Modifier.weight(1f))
+                            SecondaryMetric("CLIMBED", String.format(Locale.getDefault(), "%.0f m", elevationGain), Modifier.weight(1f))
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            KxButton(text = if (showDetails) "Hide details" else "More ride data", onClick = { showDetails = !showDetails }, primary = false, modifier = Modifier.weight(1f))
+                            KxButton(text = "Ride history (${rideHistory.size})", onClick = { showHistory = true }, primary = false, modifier = Modifier.weight(1f))
+                        }
+                        if (showDetails) {
+                            Spacer(Modifier.height(14.dp))
+                            Text("SPEED OVER TIME", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                            Spacer(Modifier.height(7.dp))
+                            SpeedHistoryGraph(speedSamples)
+                            Spacer(Modifier.height(12.dp))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SecondaryMetric("TOP SPEED", String.format(Locale.getDefault(), "%.1f km/h", maxSpeed), Modifier.weight(1f))
+                                SecondaryMetric("ALTITUDE", if (altitude > 0f) String.format(Locale.getDefault(), "%.0f m", altitude) else "—", Modifier.weight(1f))
+                                SecondaryMetric("GPS ACCURACY", if (gpsAccuracy >= 0f) String.format(Locale.getDefault(), "±%.0f m", gpsAccuracy) else "—", Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                when { gpsAccuracy < 0f -> "Waiting for a GPS fix"; gpsAccuracy <= 10f -> "GPS signal: excellent"; gpsAccuracy <= 25f -> "GPS signal: good"; gpsAccuracy <= 50f -> "GPS signal: fair"; else -> "GPS signal: weak — distance may be less accurate" },
+                                color = Kx.Muted, fontSize = 11.sp
+                            )
                         }
                         Spacer(Modifier.height(16.dp))
 
@@ -251,9 +292,53 @@ class CyclingTrackerActivity : ComponentActivity() {
                             Text("© OpenStreetMap", color = Kx.Dim, fontSize = 10.sp)
                         }
                     }
+                    if (showHistory) {
+                        AlertDialog(
+                            onDismissRequest = { showHistory = false },
+                            title = { Text("Ride history") },
+                            text = {
+                                if (rideHistory.isEmpty()) {
+                                    Text("Your completed rides will appear here. Finish a tracked ride to save its statistics.")
+                                } else {
+                                    Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                                        rideHistory.asReversed().forEach { ride ->
+                                            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                                                Text(SimpleDateFormat("dd MMM yyyy · HH:mm", Locale.getDefault()).format(Date(ride.startedAt)), color = Kx.Brass, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                Text(String.format(Locale.getDefault(), "%.2f km  ·  %s moving  ·  %.1f km/h max  ·  +%.0f m", ride.distanceMetres / 1000f, formatDuration(ride.movingSeconds), ride.maxSpeed, ride.elevationGain), color = Kx.Cream, fontSize = 12.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            confirmButton = { TextButton(onClick = { showHistory = false }) { Text("Close") } }
+                        )
+                    }
                 }
             }
         }
+    }
+
+    private fun readSpeedSamples(raw: String?): List<Pair<Float, Float>> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            (0 until array.length()).mapNotNull { i ->
+                val point = array.optJSONArray(i) ?: return@mapNotNull null
+                if (point.length() < 2) return@mapNotNull null
+                point.optDouble(0, Double.NaN).toFloat() to point.optDouble(1, Double.NaN).toFloat()
+            }.filter { it.first.isFinite() && it.second.isFinite() }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun readRideHistory(raw: String?): List<RideSummary> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            (0 until array.length()).mapNotNull { i ->
+                val item = array.optJSONObject(i) ?: return@mapNotNull null
+                RideSummary(item.optLong("startedAt"), item.optDouble("distance").toFloat(), item.optLong("movingSeconds"), item.optDouble("maxSpeed").toFloat(), item.optDouble("elevationGain").toFloat())
+            }
+        }.getOrDefault(emptyList())
     }
 
     private fun readRoute(raw: String?): List<RidePoint> {
@@ -321,6 +406,26 @@ private fun SecondaryMetric(label: String, value: String, modifier: Modifier = M
         Text(label, color = Kx.Dim, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.7.sp)
         Spacer(Modifier.height(3.dp))
         Text(value, color = Kx.Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun SpeedHistoryGraph(samples: List<Pair<Float, Float>>) {
+    if (samples.size < 2) {
+        Text("The graph will build as GPS confirms movement.", color = Kx.Muted, fontSize = 11.sp)
+        return
+    }
+    Canvas(Modifier.fillMaxWidth().height(86.dp).background(Kx.SurfaceHi, RoundedCornerShape(12.dp)).padding(8.dp)) {
+        val maxSpeed = (samples.maxOfOrNull { it.second } ?: 1f).coerceAtLeast(5f)
+        val minTime = samples.first().first
+        val timeSpan = (samples.last().first - minTime).coerceAtLeast(1f)
+        val path = Path()
+        samples.forEachIndexed { index, sample ->
+            val x = (sample.first - minTime) / timeSpan * size.width
+            val y = size.height - (sample.second / maxSpeed).coerceIn(0f, 1f) * size.height
+            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        drawPath(path, color = Kx.Brass, style = Stroke(width = 3.dp.toPx()))
     }
 }
 

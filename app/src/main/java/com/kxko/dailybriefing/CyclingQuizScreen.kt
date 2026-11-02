@@ -131,7 +131,7 @@ private fun SetupView(state: QuizScreenState, actions: QuizScreenActions) {
         Text("Radfahr-Quiz", color = Kx.Cream, fontSize = 32.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         Text(
-            "Questions are read out loud. Answer with the media buttons on your watch. Wrong answers come back later.",
+            "Questions are read aloud by ElevenLabs AI. Answer with the media buttons on your watch. Wrong answers come back later.",
             color = Kx.Muted,
             fontSize = 14.sp,
             lineHeight = 20.sp
@@ -210,27 +210,14 @@ private fun SetupView(state: QuizScreenState, actions: QuizScreenActions) {
         KxLabel("Voice")
         Spacer(Modifier.height(8.dp))
         Text(
-            if (state.aiVoiceEnabled) "Lively AI voice is on (needs internet). Offline, the app reads with your phone's own voice."
-            else "The AI voice isn't available right now. The app reads with your phone's own voice.",
+            if (state.aiVoiceEnabled) "ElevenLabs AI voice is required (internet connection needed). No device TTS fallback."
+            else "ElevenLabs AI voice is required. If it fails, the quiz will show the error instead of switching voices.",
             color = Kx.Cream,
             fontSize = 14.sp,
             lineHeight = 20.sp
         )
         Spacer(Modifier.height(8.dp))
-        Text(
-            if (state.sherpaInstalled) "SherpaTTS is installed. Pick it as your speech engine and download a German voice for an offline neural voice."
-            else "For a free offline neural voice, install SherpaTTS and a German voice model.",
-            color = Kx.Dim,
-            fontSize = 12.sp,
-            lineHeight = 18.sp
-        )
-        Spacer(Modifier.height(10.dp))
-        KxButton(
-            if (state.sherpaInstalled) "Choose neural voice" else "Get free neural voice",
-            onClick = actions.onSherpa,
-            primary = false,
-            modifier = Modifier.fillMaxWidth()
-        )
+        Text("If generation or playback fails, the error appears in the quiz status. No silent fallback is used.", color = Kx.Dim, fontSize = 12.sp, lineHeight = 18.sp)
     }
 }
 

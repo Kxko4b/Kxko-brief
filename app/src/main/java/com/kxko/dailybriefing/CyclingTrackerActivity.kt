@@ -62,6 +62,8 @@ class CyclingTrackerActivity : ComponentActivity() {
                 val armed = remember(refresh) { prefs.getBoolean(CyclingTrackerService.KEY_ARMED, false) }
                 val distance = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_DISTANCE, 0f) }
                 val speed = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_SPEED, 0f) }
+                val trackingStartedAt = remember(refresh) { prefs.getLong(CyclingTrackerService.KEY_TRACKING_STARTED_AT, 0L) }
+                val elapsedSeconds = if (tracking && trackingStartedAt > 0L) ((System.currentTimeMillis() - trackingStartedAt) / 1000L).coerceAtLeast(0L) else 0L
                 val hasLocation = hasLocationPermission()
 
                 LaunchedEffect(tracking) {
@@ -123,6 +125,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Metric("DISTANCE", String.format(Locale.getDefault(), "%.2f km", distance / 1000f), Modifier.weight(1f))
                                 Metric("SPEED", String.format(Locale.getDefault(), "%.1f km/h", speed), Modifier.weight(1f))
+                                Metric("TIME", String.format(Locale.getDefault(), "%02d:%02d:%02d", elapsedSeconds / 3600, (elapsedSeconds % 3600) / 60, elapsedSeconds % 60), Modifier.weight(1f))
                             }
                             Spacer(Modifier.height(14.dp))
                             KxButton(

@@ -7,8 +7,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -47,7 +45,6 @@ import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import java.io.File
-import java.util.Locale
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -66,14 +63,11 @@ private data class QuizQuestion(
 
 private data class ScheduledReview(val question: QuizQuestion, val dueAfterAnswer: Int)
 
-private const val SHERPA_TTS_PACKAGE = "org.woheller69.ttsengine"
-
 class CyclingQuizActivity : ComponentActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
-    private var tts: TextToSpeech? = null
     private var mediaSession: MediaSessionCompat? = null
-    private var ttsReady by mutableStateOf(false)
+    private var ttsReady by mutableStateOf(true)
     private var studyLoaded by mutableStateOf(false)
     private var isLoadingStudy by mutableStateOf(false)
     private var studyEmail by mutableStateOf("")
@@ -93,16 +87,15 @@ class CyclingQuizActivity : ComponentActivity() {
     private var statusText by mutableStateOf("Bitte nur im Stillstand starten. Achte beim Radfahren immer auf den Verkehr.")
     private var answerCount by mutableStateOf(0)
     private var correctCount by mutableStateOf(0)
-    private val utteranceCallbacks = mutableMapOf<String, () -> Unit>()
     private var utteranceNumber = 0
 
-    // Lively AI voice (server-made speech). Falls back to the phone's own text-to-speech whenever it is unavailable.
+    // ElevenLabs is mandatory. The quiz never falls back to device text-to-speech.
     private val voiceExecutor: ExecutorService = Executors.newFixedThreadPool(3)
     private val voiceCache = HashMap<String, ByteArray>()
     private val voiceInflight = HashMap<String, Future<ByteArray?>>()
     private var voicePlayer: MediaPlayer? = null
     private var speakToken = 0
-    private var aiVoiceFailures = 0
+    private var lastVoiceError = ""
     private var aiVoiceEnabled by mutableStateOf(true)
 
     private var questionBank = listOf(
@@ -128,34 +121,7 @@ class CyclingQuizActivity : ComponentActivity() {
         signedIn = studyRepository.hasSession()
         statsSnapshot = studyStats.snapshot()
 
-        val ttsInitListener = TextToSpeech.OnInitListener { result ->
-            if (result == TextToSpeech.SUCCESS) {
-                val engine = tts
-                val languageResult = engine?.setLanguage(Locale.GERMANY)
-                if (languageResult == TextToSpeech.LANG_MISSING_DATA || languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    engine?.language = Locale.GERMANY
-                }
-                engine?.setSpeechRate(0.9f)
-                engine?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) = Unit
-                    override fun onError(utteranceId: String?) {
-                        utteranceId?.let { handler.post { utteranceCallbacks.remove(it)?.invoke() } }
-                    }
-                    override fun onDone(utteranceId: String?) {
-                        utteranceId?.let { id -> handler.post { utteranceCallbacks.remove(id)?.invoke() } }
-                    }
-                })
-                ttsReady = true
-            } else {
-                statusText = "Speech could not start. Check that a text-to-speech voice is installed."
-            }
-        }
-        // Prefer the free, offline neural SherpaTTS engine when installed; otherwise keep the device default.
-        tts = if (isSherpaTtsInstalled()) {
-            TextToSpeech(this, ttsInitListener, SHERPA_TTS_PACKAGE)
-        } else {
-            TextToSpeech(this, ttsInitListener)
-        }
+        ttsReady = true // Quiz readiness does not depend on a device speech engine.
 
         mediaSession = MediaSessionCompat(this, "KxkoCyclingQuiz").apply {
             setCallback(object : MediaSessionCompat.Callback() {
@@ -187,7 +153,7 @@ class CyclingQuizActivity : ComponentActivity() {
                     correctCount = correctCount,
                     acceptingAnswers = acceptingAnswers,
                     aiVoiceEnabled = aiVoiceEnabled,
-                    sherpaInstalled = isSherpaTtsInstalled(),
+                    sherpaInstalled = false,
                     streak = snap.streak,
                     answeredToday = snap.answeredToday,
                     goal = snap.goal
@@ -200,24 +166,11 @@ class CyclingQuizActivity : ComponentActivity() {
                     onAnswer = { submitAnswer(it) },
                     onFinish = { finishQuiz() },
                     onReset = { resetQuiz() },
-                    onSherpa = {
-                        if (isSherpaTtsInstalled()) {
-                            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                        } else {
-                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://f-droid.org/packages/org.woheller69.ttsengine/")))
-                        }
-                    },
+                    onSherpa = {},
                     onBack = { finish() }
                 )
             )
         }
-    }
-
-    private fun isSherpaTtsInstalled(): Boolean = try {
-        packageManager.getPackageInfo(SHERPA_TTS_PACKAGE, 0)
-        true
-    } catch (_: Exception) {
-        false
     }
 
     private fun sendAnswerFromWatch(index: Int) {
@@ -380,24 +333,21 @@ class CyclingQuizActivity : ComponentActivity() {
 
     private fun speak(text: String, onDone: (() -> Unit)? = null, languageTag: String? = currentQuestion?.languageTag) {
         val lang = languageTag ?: "de-DE"
-        if (!aiVoiceEnabled || !studyLoaded) {
-            speakWithDevice(text, onDone, lang)
-            return
-        }
         val token = ++speakToken
-        tts?.stop()
         stopVoicePlayer()
+        statusText = "Generating ElevenLabs voice…"
         Thread {
             val bytes = fetchVoice(text, lang)
             runOnUiThread {
                 if (token != speakToken || isFinishing) return@runOnUiThread
                 if (bytes == null) {
-                    aiVoiceFailures += 1
-                    if (aiVoiceFailures >= 2) aiVoiceEnabled = false
-                    speakWithDevice(text, onDone, lang)
+                    statusText = "ElevenLabs voice unavailable: ${lastVoiceError.ifBlank { "Unknown error" }}. Check the connection and try again."
+                    onDone?.invoke()
                 } else {
-                    aiVoiceFailures = 0
-                    playVoice(bytes, onFail = { speakWithDevice(text, onDone, lang) }, onDone = onDone)
+                    playVoice(bytes, onFail = {
+                        statusText = "ElevenLabs audio was generated but could not be played. Please retry."
+                        onDone?.invoke()
+                    }, onDone = onDone)
                 }
             }
         }.start()
@@ -409,7 +359,7 @@ class CyclingQuizActivity : ComponentActivity() {
         val future = synchronized(voiceInflight) {
             voiceInflight.getOrPut(key) {
                 voiceExecutor.submit(Callable<ByteArray?> {
-                    val result = try { studyRepository.synthesize(text, lang) } catch (_: Exception) { null }
+                    val result = try { studyRepository.synthesize(text, lang).also { lastVoiceError = "" } } catch (error: Exception) { lastVoiceError = error.message ?: error.javaClass.simpleName; null }
                     if (result != null) synchronized(voiceCache) { voiceCache[key] = result }
                     synchronized(voiceInflight) { voiceInflight.remove(key) }
                     result
@@ -465,25 +415,6 @@ class CyclingQuizActivity : ComponentActivity() {
         try { player.release() } catch (_: Exception) { }
     }
 
-    private fun speakWithDevice(text: String, onDone: (() -> Unit)?, languageTag: String) {
-        val engine = tts
-        if (engine == null || !ttsReady) {
-            onDone?.invoke()
-            return
-        }
-        val requestedLocale = Locale.forLanguageTag(languageTag)
-        val languageResult = engine.setLanguage(requestedLocale)
-        if (languageResult == TextToSpeech.LANG_MISSING_DATA || languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-            engine.setLanguage(Locale.GERMANY)
-        }
-        val id = "kxko-quiz-${++utteranceNumber}"
-        if (onDone != null) utteranceCallbacks[id] = onDone
-        val result = engine.speak(text, TextToSpeech.QUEUE_FLUSH, Bundle(), id)
-        if (result == TextToSpeech.ERROR) {
-            utteranceCallbacks.remove(id)?.invoke()
-        }
-    }
-
     private fun finishQuiz() {
         acceptingAnswers = false
         started = false
@@ -493,7 +424,6 @@ class CyclingQuizActivity : ComponentActivity() {
         mediaSession?.isActive = false
         speakToken++
         stopVoicePlayer()
-        tts?.stop()
         statusText = "Session stopped. Your score was $correctCount out of $answerCount."
     }
 
@@ -524,10 +454,6 @@ class CyclingQuizActivity : ComponentActivity() {
         speakToken++
         stopVoicePlayer()
         voiceExecutor.shutdownNow()
-        tts?.stop()
-        tts?.shutdown()
-        tts = null
-        utteranceCallbacks.clear()
         super.onDestroy()
     }
 }

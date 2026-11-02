@@ -179,6 +179,7 @@ class CyclingTrackerService : Service(), LocationListener {
                 val trimmedSpeedHistory = if (speedHistory.length() > 120) JSONArray().also { trimmed ->
                     for (index in speedHistory.length() - 120 until speedHistory.length()) trimmed.put(speedHistory.getJSONArray(index))
                 } else speedHistory
+                prefs.edit().putString(KEY_SPEED_HISTORY, trimmedSpeedHistory.toString()).apply()
                 if (location.accuracy <= 20f) appendRoutePoint(location)
                 lastLocation = location
             } else if (segment >= movementThreshold || elapsedSeconds > 30f) {
@@ -199,13 +200,6 @@ class CyclingTrackerService : Service(), LocationListener {
             .putFloat(KEY_ELEVATION_GAIN, elevationGainMetres)
             .putFloat(KEY_CURRENT_ALTITUDE, if (location.hasAltitude()) location.altitude.toFloat() else prefs.getFloat(KEY_CURRENT_ALTITUDE, 0f))
             .putFloat(KEY_GPS_ACCURACY, location.accuracy)
-            .putString(KEY_SPEED_HISTORY, runCatching { JSONArray(prefs.getString(KEY_SPEED_HISTORY, "[]") ?: "[]") }.getOrDefault(JSONArray()).let { history ->
-                // The graph is a compact recent trace; cap storage on every accepted update.
-                val accepted = if (history.length() > 120) JSONArray().also { trimmed ->
-                    for (index in history.length() - 120 until history.length()) trimmed.put(history.getJSONArray(index))
-                } else history
-                accepted.toString()
-            })
             .putLong(KEY_LAST_FIX, System.currentTimeMillis())
             .apply()
 

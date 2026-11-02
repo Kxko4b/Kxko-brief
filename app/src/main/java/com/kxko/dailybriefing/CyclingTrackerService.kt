@@ -167,9 +167,9 @@ class CyclingTrackerService : Service(), LocationListener {
             .putLong(KEY_LAST_FIX, System.currentTimeMillis())
             .apply()
 
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastNotificationUpdate >= 5000L) {
-            lastNotificationUpdate = now
+        val monotonicNow = SystemClock.elapsedRealtime()
+        if (monotonicNow - lastNotificationUpdate >= 5000L) {
+            lastNotificationUpdate = monotonicNow
             updateNotification(String.format(Locale.getDefault(), "%.2f km · %.1f km/h", distanceMetres / 1000f, speedKmh))
         }
         sendBroadcast(Intent(ACTION_STATS_UPDATED).setPackage(packageName))

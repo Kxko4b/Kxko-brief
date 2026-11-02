@@ -12,6 +12,9 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
+import android.location.GnssStatus
+import android.os.Handler
+import android.os.Looper
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
@@ -37,6 +40,34 @@ class CyclingTrackerService : Service(), LocationListener {
     private var movingSeconds = 0L
     private var elevationGainMetres = 0f
     private var lastAltitude: Double? = null
+    private var lastAcceptedAltitude: Double? = null
+    private var currentGradePercent = 0f
+    private var satellitesVisible = 0
+    private var satellitesUsed = 0
+    private var currentLatitude = 0.0
+    private var currentLongitude = 0.0
+    private var currentBearing = 0f
+    private var speedAccuracy = -1f
+    private var verticalAccuracy = -1f
+    private var currentSplitDistance = 0f
+    private var currentSplitMovingSeconds = 0L
+    private var currentSplitMaxSpeed = 0f
+    private var nextSplitKm = 1
+    private val splitRecords = JSONArray()
+    private val gnssCallback = object : GnssStatus.Callback() {
+        override fun onSatelliteStatusChanged(status: GnssStatus) {
+            var visible = 0
+            var used = 0
+            for (index in 0 until status.satelliteCount) {
+                visible++
+                if (status.usedInFix(index)) used++
+            }
+            satellitesVisible = visible
+            satellitesUsed = used
+            prefs.edit().putInt(KEY_SATELLITES_VISIBLE, visible).putInt(KEY_SATELLITES_USED, used).apply()
+            sendBroadcast(Intent(ACTION_STATS_UPDATED).setPackage(packageName))
+        }
+    }
     private var lastNotificationUpdate = 0L
     private var locationUpdatesRunning = false
 
@@ -83,6 +114,14 @@ class CyclingTrackerService : Service(), LocationListener {
             .putFloat(KEY_ELEVATION_GAIN, 0f)
             .putFloat(KEY_CURRENT_ALTITUDE, 0f)
             .putFloat(KEY_GPS_ACCURACY, -1f)
+            .putFloat(KEY_SPEED_ACCURACY, -1f)
+            .putFloat(KEY_VERTICAL_ACCURACY, -1f)
+            .putFloat(KEY_CURRENT_GRADE, 0f)
+            .putFloat(KEY_BEARING, 0f)
+            .putString(KEY_COORDINATES, "")
+            .putInt(KEY_SATELLITES_VISIBLE, 0)
+            .putInt(KEY_SATELLITES_USED, 0)
+            .putString(KEY_SPLITS, "[]")
             .putString(KEY_SPEED_HISTORY, "[]")
             .putString(KEY_ROUTE_POINTS, "[]")
             .putLong(KEY_TRACKING_STARTED_AT, 0L)
@@ -93,6 +132,13 @@ class CyclingTrackerService : Service(), LocationListener {
         movingSeconds = 0L
         elevationGainMetres = 0f
         lastAltitude = null
+        lastAcceptedAltitude = null
+        currentGradePercent = 0f
+        currentSplitDistance = 0f
+        currentSplitMovingSeconds = 0L
+        currentSplitMaxSpeed = 0f
+        nextSplitKm = 1
+        splitRecords.put(JSONObject().put("km", 0).put("timeSeconds", 0).put("maxSpeed", 0))
         lastLocation = null
         lastAcceptedMovementAt = 0L
         lastRouteLocation = null
@@ -123,6 +169,9 @@ class CyclingTrackerService : Service(), LocationListener {
                 LocationManager.NETWORK_PROVIDER
             }
             locationManager.requestLocationUpdates(provider, 1000L, 1f, this)
+            if (Build.VERSION.SDK_INT >= 24 && provider == LocationManager.GPS_PROVIDER) {
+                runCatching { locationManager.registerGnssStatusCallback(gnssCallback, Handler(Looper.getMainLooper())) }
+            }
             locationUpdatesRunning = true
             // Cached fixes can be minutes old and create fake distance jumps at startup.
             updateNotification("GPS active — waiting for a fresh location fix…")
@@ -161,8 +210,22 @@ class CyclingTrackerService : Service(), LocationListener {
             val movementThreshold = maxOf(8f, location.accuracy * 1.2f)
             if (segment >= movementThreshold && measuredSpeed in 0.8f..16.7f && segment <= 120f) {
                 distanceMetres += segment
-                movingSeconds += elapsedSeconds.toLong().coerceAtLeast(1L)
+                val acceptedSeconds = elapsedSeconds.toLong().coerceAtLeast(1L)
+                movingSeconds += acceptedSeconds
+                currentSplitDistance += segment
+                currentSplitMovingSeconds += acceptedSeconds
                 speedKmh = measuredSpeed * 3.6f
+                currentSplitMaxSpeed = maxOf(currentSplitMaxSpeed, speedKmh)
+                while (distanceMetres >= nextSplitKm * 1000f) {
+                    splitRecords.put(JSONObject()
+                        .put("km", nextSplitKm)
+                        .put("timeSeconds", currentSplitMovingSeconds)
+                        .put("maxSpeed", currentSplitMaxSpeed))
+                    nextSplitKm++
+                    currentSplitDistance = 0f
+                    currentSplitMovingSeconds = 0L
+                    currentSplitMaxSpeed = 0f
+                }
                 lastAcceptedMovementAt = now
                 if (location.hasAltitude() && location.accuracy <= 20f) {
                     val altitude = location.altitude
@@ -170,7 +233,11 @@ class CyclingTrackerService : Service(), LocationListener {
                     if (previousAltitude != null) {
                         val climb = altitude - previousAltitude
                         val verticalAccuracyGood = Build.VERSION.SDK_INT < 26 || (location.hasVerticalAccuracy() && location.verticalAccuracyMeters <= 10f)
-                        if (verticalAccuracyGood && climb in 2.5..25.0) elevationGainMetres += climb.toFloat()
+                        if (verticalAccuracyGood && climb in 2.5..25.0) {
+                            elevationGainMetres += climb.toFloat()
+                            val horizontal = maxOf(segment.toDouble(), 1.0)
+                            currentGradePercent = ((climb / horizontal) * 100.0).toFloat().coerceIn(-20f, 20f)
+                        } else currentGradePercent = 0f
                     }
                     lastAltitude = altitude
                 }
@@ -194,6 +261,14 @@ class CyclingTrackerService : Service(), LocationListener {
         // Ignore isolated GPS speed spikes; show zero after four seconds without confirmed movement.
         if (lastAcceptedMovementAt == 0L || now - lastAcceptedMovementAt > 4000L) speedKmh = 0f
         val maxSpeed = maxOf(prefs.getFloat(KEY_MAX_SPEED, 0f), speedKmh)
+        currentLatitude = location.latitude
+        currentLongitude = location.longitude
+        if (prefs.getString(KEY_START_COORDINATES, "").isNullOrEmpty()) {
+            prefs.edit().putString(KEY_START_COORDINATES, String.format(Locale.US, "%.5f, %.5f", currentLatitude, currentLongitude)).apply()
+        }
+        if (location.hasBearing()) currentBearing = location.bearing
+        speedAccuracy = if (Build.VERSION.SDK_INT >= 26 && location.hasSpeedAccuracy()) location.speedAccuracyMetersPerSecond else -1f
+        verticalAccuracy = if (Build.VERSION.SDK_INT >= 26 && location.hasVerticalAccuracy()) location.verticalAccuracyMeters else -1f
         prefs.edit()
             .putFloat(KEY_DISTANCE, distanceMetres)
             .putFloat(KEY_SPEED, speedKmh)
@@ -202,6 +277,14 @@ class CyclingTrackerService : Service(), LocationListener {
             .putFloat(KEY_ELEVATION_GAIN, elevationGainMetres)
             .putFloat(KEY_CURRENT_ALTITUDE, if (location.hasAltitude()) location.altitude.toFloat() else prefs.getFloat(KEY_CURRENT_ALTITUDE, 0f))
             .putFloat(KEY_GPS_ACCURACY, location.accuracy)
+            .putFloat(KEY_SPEED_ACCURACY, speedAccuracy)
+            .putFloat(KEY_VERTICAL_ACCURACY, verticalAccuracy)
+            .putFloat(KEY_CURRENT_GRADE, currentGradePercent)
+            .putFloat(KEY_BEARING, currentBearing)
+            .putString(KEY_COORDINATES, String.format(Locale.US, "%.5f, %.5f", currentLatitude, currentLongitude))
+            .putInt(KEY_SATELLITES_VISIBLE, satellitesVisible)
+            .putInt(KEY_SATELLITES_USED, satellitesUsed)
+            .putString(KEY_SPLITS, splitRecords.toString())
             .putLong(KEY_LAST_FIX, System.currentTimeMillis())
             .apply()
 
@@ -243,6 +326,7 @@ class CyclingTrackerService : Service(), LocationListener {
     private fun stopTracking() {
         saveCompletedRide()
         runCatching { locationManager.removeUpdates(this) }
+        if (Build.VERSION.SDK_INT >= 24) runCatching { locationManager.unregisterGnssStatusCallback(gnssCallback) }
         locationUpdatesRunning = false
         prefs.edit()
             .putBoolean(KEY_TRACKING, false)
@@ -308,6 +392,15 @@ class CyclingTrackerService : Service(), LocationListener {
         const val KEY_ELEVATION_GAIN = "cycling_elevation_gain"
         const val KEY_CURRENT_ALTITUDE = "cycling_current_altitude"
         const val KEY_GPS_ACCURACY = "cycling_gps_accuracy"
+        const val KEY_SPEED_ACCURACY = "cycling_speed_accuracy"
+        const val KEY_VERTICAL_ACCURACY = "cycling_vertical_accuracy"
+        const val KEY_CURRENT_GRADE = "cycling_current_grade"
+        const val KEY_BEARING = "cycling_bearing"
+        const val KEY_COORDINATES = "cycling_coordinates"
+        const val KEY_START_COORDINATES = "cycling_start_coordinates"
+        const val KEY_SATELLITES_VISIBLE = "cycling_satellites_visible"
+        const val KEY_SATELLITES_USED = "cycling_satellites_used"
+        const val KEY_SPLITS = "cycling_splits"
         const val KEY_SPEED_HISTORY = "cycling_speed_history"
         const val KEY_RIDE_HISTORY = "cycling_ride_history"
         private const val CHANNEL_ID = "cycling_tracking"

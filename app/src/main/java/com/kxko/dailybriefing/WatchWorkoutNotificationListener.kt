@@ -18,11 +18,11 @@ class WatchWorkoutNotificationListener : NotificationListenerService() {
 
         val extras = sbn.notification.extras
         val text = buildString {
-            append(extras.getCharSequence(Notification.EXTRA_TITLE).orEmpty())
+            append((extras.getCharSequence(Notification.EXTRA_TITLE) ?: ""))
             append(' ')
-            append(extras.getCharSequence(Notification.EXTRA_TEXT).orEmpty())
+            append((extras.getCharSequence(Notification.EXTRA_TEXT) ?: ""))
             append(' ')
-            append(extras.getCharSequence(Notification.EXTRA_BIG_TEXT).orEmpty())
+            append((extras.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: ""))
             extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.forEach {
                 append(' ')
                 append(it)

@@ -21,6 +21,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import java.util.Locale
 import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * User-armed foreground GPS tracker. It waits for Mi Fitness's workout signal,
@@ -33,6 +34,9 @@ class CyclingTrackerService : Service(), LocationListener {
     private var lastAcceptedMovementAt = 0L
     private var lastRouteLocation: Location? = null
     private var distanceMetres = 0f
+    private var movingSeconds = 0L
+    private var elevationGainMetres = 0f
+    private var lastAltitude: Double? = null
     private var lastNotificationUpdate = 0L
     private var locationUpdatesRunning = false
 
@@ -75,11 +79,19 @@ class CyclingTrackerService : Service(), LocationListener {
             .putFloat(KEY_DISTANCE, 0f)
             .putFloat(KEY_SPEED, 0f)
             .putFloat(KEY_MAX_SPEED, 0f)
+            .putLong(KEY_MOVING_SECONDS, 0L)
+            .putFloat(KEY_ELEVATION_GAIN, 0f)
+            .putFloat(KEY_CURRENT_ALTITUDE, 0f)
+            .putFloat(KEY_GPS_ACCURACY, -1f)
+            .putString(KEY_SPEED_HISTORY, "[]")
             .putString(KEY_ROUTE_POINTS, "[]")
             .putLong(KEY_TRACKING_STARTED_AT, 0L)
             .putBoolean(KEY_TRACKING, false)
             .apply()
         distanceMetres = 0f
+        movingSeconds = 0L
+        elevationGainMetres = 0f
+        lastAltitude = null
         lastLocation = null
         lastAcceptedMovementAt = 0L
         lastRouteLocation = null
@@ -97,6 +109,8 @@ class CyclingTrackerService : Service(), LocationListener {
         }
 
         distanceMetres = prefs.getFloat(KEY_DISTANCE, 0f)
+        movingSeconds = prefs.getLong(KEY_MOVING_SECONDS, 0L)
+        elevationGainMetres = prefs.getFloat(KEY_ELEVATION_GAIN, 0f)
         if (prefs.getLong(KEY_TRACKING_STARTED_AT, 0L) == 0L) {
             prefs.edit().putLong(KEY_TRACKING_STARTED_AT, System.currentTimeMillis()).apply()
         }
@@ -146,8 +160,25 @@ class CyclingTrackerService : Service(), LocationListener {
             val movementThreshold = maxOf(8f, location.accuracy * 1.2f)
             if (segment >= movementThreshold && measuredSpeed in 0.8f..16.7f && segment <= 120f) {
                 distanceMetres += segment
+                movingSeconds += elapsedSeconds.toLong().coerceAtLeast(1L)
                 speedKmh = measuredSpeed * 3.6f
                 lastAcceptedMovementAt = now
+                if (location.hasAltitude() && location.accuracy <= 20f) {
+                    val altitude = location.altitude
+                    val previousAltitude = lastAltitude
+                    if (previousAltitude != null) {
+                        val climb = altitude - previousAltitude
+                        if (climb in 1.0..30.0) elevationGainMetres += climb.toFloat()
+                    }
+                    lastAltitude = altitude
+                }
+                val startedAt = prefs.getLong(KEY_TRACKING_STARTED_AT, now)
+                val speedHistory = runCatching { JSONArray(prefs.getString(KEY_SPEED_HISTORY, "[]") ?: "[]") }
+                    .getOrDefault(JSONArray())
+                speedHistory.put(JSONArray().put(((now - startedAt).coerceAtLeast(0L)) / 1000L).put(speedKmh))
+                val trimmedSpeedHistory = if (speedHistory.length() > 120) JSONArray().also { trimmed ->
+                    for (index in speedHistory.length() - 120 until speedHistory.length()) trimmed.put(speedHistory.getJSONArray(index))
+                } else speedHistory
                 if (location.accuracy <= 20f) appendRoutePoint(location)
                 lastLocation = location
             } else if (segment >= movementThreshold || elapsedSeconds > 30f) {
@@ -164,6 +195,17 @@ class CyclingTrackerService : Service(), LocationListener {
             .putFloat(KEY_DISTANCE, distanceMetres)
             .putFloat(KEY_SPEED, speedKmh)
             .putFloat(KEY_MAX_SPEED, maxSpeed)
+            .putLong(KEY_MOVING_SECONDS, movingSeconds)
+            .putFloat(KEY_ELEVATION_GAIN, elevationGainMetres)
+            .putFloat(KEY_CURRENT_ALTITUDE, if (location.hasAltitude()) location.altitude.toFloat() else prefs.getFloat(KEY_CURRENT_ALTITUDE, 0f))
+            .putFloat(KEY_GPS_ACCURACY, location.accuracy)
+            .putString(KEY_SPEED_HISTORY, runCatching { JSONArray(prefs.getString(KEY_SPEED_HISTORY, "[]") ?: "[]") }.getOrDefault(JSONArray()).let { history ->
+                // The graph is a compact recent trace; cap storage on every accepted update.
+                val accepted = if (history.length() > 120) JSONArray().also { trimmed ->
+                    for (index in history.length() - 120 until history.length()) trimmed.put(history.getJSONArray(index))
+                } else history
+                accepted.toString()
+            })
             .putLong(KEY_LAST_FIX, System.currentTimeMillis())
             .apply()
 
@@ -175,7 +217,32 @@ class CyclingTrackerService : Service(), LocationListener {
         sendBroadcast(Intent(ACTION_STATS_UPDATED).setPackage(packageName))
     }
 
+    private fun saveCompletedRide() {
+        if (distanceMetres < 50f) return
+        val history = runCatching { JSONArray(prefs.getString(KEY_RIDE_HISTORY, "[]") ?: "[]") }
+            .getOrDefault(JSONArray())
+        val route = runCatching { JSONArray(prefs.getString(KEY_ROUTE_POINTS, "[]") ?: "[]") }
+            .getOrDefault(JSONArray())
+        val compactRoute = JSONArray()
+        val step = maxOf(1, route.length() / 600)
+        for (index in 0 until route.length() step step) compactRoute.put(route.getJSONArray(index))
+        val ride = JSONObject()
+            .put("startedAt", prefs.getLong(KEY_TRACKING_STARTED_AT, System.currentTimeMillis()))
+            .put("endedAt", System.currentTimeMillis())
+            .put("distance", distanceMetres)
+            .put("movingSeconds", movingSeconds)
+            .put("maxSpeed", prefs.getFloat(KEY_MAX_SPEED, 0f))
+            .put("elevationGain", elevationGainMetres)
+            .put("route", compactRoute)
+            .put("speedHistory", JSONArray(prefs.getString(KEY_SPEED_HISTORY, "[]") ?: "[]"))
+        history.put(ride)
+        val bounded = JSONArray()
+        for (index in maxOf(0, history.length() - 15) until history.length()) bounded.put(history.getJSONObject(index))
+        prefs.edit().putString(KEY_RIDE_HISTORY, bounded.toString()).apply()
+    }
+
     private fun stopTracking() {
+        saveCompletedRide()
         runCatching { locationManager.removeUpdates(this) }
         locationUpdatesRunning = false
         prefs.edit()
@@ -236,6 +303,12 @@ class CyclingTrackerService : Service(), LocationListener {
         const val KEY_ROUTE_POINTS = "cycling_route_points"
         const val KEY_LAST_FIX = "cycling_last_fix"
         const val KEY_TRACKING_STARTED_AT = "cycling_tracking_started_at"
+        const val KEY_MOVING_SECONDS = "cycling_moving_seconds"
+        const val KEY_ELEVATION_GAIN = "cycling_elevation_gain"
+        const val KEY_CURRENT_ALTITUDE = "cycling_current_altitude"
+        const val KEY_GPS_ACCURACY = "cycling_gps_accuracy"
+        const val KEY_SPEED_HISTORY = "cycling_speed_history"
+        const val KEY_RIDE_HISTORY = "cycling_ride_history"
         private const val CHANNEL_ID = "cycling_tracking"
         private const val NOTIFICATION_ID = 648
     }

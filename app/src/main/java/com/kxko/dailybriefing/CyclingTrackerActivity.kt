@@ -178,7 +178,12 @@ class CyclingTrackerActivity : ComponentActivity() {
                                     color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp
                                 )
                                 Text(
-                                    when { tracking -> "Keep moving. You're doing great."; armed -> "Waiting for your Redmi Watch"; else -> "Track every kilometre." },
+                                    when {
+                                        tracking && speed > 0.5f -> "Movement confirmed · route recording"
+                                        tracking -> "GPS is filtering small location shifts"
+                                        armed -> "Waiting for your Redmi Watch"
+                                        else -> "Track every kilometre."
+                                    },
                                     color = Kx.Cream, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis
                                 )

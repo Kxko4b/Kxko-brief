@@ -48,6 +48,7 @@ import java.util.Date
 
 private data class RidePoint(val latitude: Double, val longitude: Double)
 private data class RideSummary(val startedAt: Long, val distanceMetres: Float, val elapsedSeconds: Long, val movingSeconds: Long, val maxSpeed: Float, val elevationGain: Float)
+private data class KmSplit(val kilometre: Int, val movingSeconds: Long, val maxSpeed: Float)
 
 class CyclingTrackerActivity : ComponentActivity() {
     private var refresh by mutableIntStateOf(0)
@@ -89,6 +90,16 @@ class CyclingTrackerActivity : ComponentActivity() {
                 val elevationGain = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_ELEVATION_GAIN, 0f) }
                 val altitude = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_CURRENT_ALTITUDE, 0f) }
                 val gpsAccuracy = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_GPS_ACCURACY, -1f) }
+                val speedAccuracy = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_SPEED_ACCURACY, -1f) }
+                val verticalAccuracy = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_VERTICAL_ACCURACY, -1f) }
+                val grade = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_CURRENT_GRADE, 0f) }
+                val bearing = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_BEARING, 0f) }
+                val coordinates = remember(refresh) { prefs.getString(CyclingTrackerService.KEY_COORDINATES, "") ?: "" }
+                val satellitesVisible = remember(refresh) { prefs.getInt(CyclingTrackerService.KEY_SATELLITES_VISIBLE, 0) }
+                val satellitesUsed = remember(refresh) { prefs.getInt(CyclingTrackerService.KEY_SATELLITES_USED, 0) }
+                val splits = remember(refresh) { readSplits(prefs.getString(CyclingTrackerService.KEY_SPLITS, "[]")) }
+                val stoppedSeconds = (elapsed - movingSeconds).coerceAtLeast(0L)
+                val pace = if (speed > 0.5f) 60f / speed else 0f
                 val speedSamples = remember(refresh) { readSpeedSamples(prefs.getString(CyclingTrackerService.KEY_SPEED_HISTORY, "[]")) }
                 val rideHistory = remember(refresh) { readRideHistory(prefs.getString(CyclingTrackerService.KEY_RIDE_HISTORY, "[]")) }
                 val trackingStartedAt = remember(refresh) { prefs.getLong(CyclingTrackerService.KEY_TRACKING_STARTED_AT, 0L) }
@@ -251,6 +262,39 @@ class CyclingTrackerActivity : ComponentActivity() {
                                 when { gpsAccuracy < 0f -> "Waiting for a GPS fix"; gpsAccuracy <= 10f -> "GPS signal: excellent"; gpsAccuracy <= 25f -> "GPS signal: good"; gpsAccuracy <= 50f -> "GPS signal: fair"; else -> "GPS signal: weak — distance may be less accurate" },
                                 color = Kx.Muted, fontSize = 11.sp
                             )
+                            Spacer(Modifier.height(12.dp))
+                            Text("LIVE TELEMETRY", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                            Spacer(Modifier.height(7.dp))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SecondaryMetric("CURRENT PACE", if (pace > 0f) String.format(Locale.getDefault(), "%.1f min/km", pace) else "—", Modifier.weight(1f))
+                                SecondaryMetric("STOPPED TIME", formatDuration(stoppedSeconds), Modifier.weight(1f))
+                                SecondaryMetric("ROAD GRADE", String.format(Locale.getDefault(), "%+.1f%%", grade), Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SecondaryMetric("GPS SATELLITES", if (satellitesVisible > 0) "$satellitesUsed / $satellitesVisible used" else "—", Modifier.weight(1f))
+                                SecondaryMetric("SPEED ACCURACY", if (speedAccuracy >= 0f) String.format(Locale.getDefault(), "±%.1f m/s", speedAccuracy) else "—", Modifier.weight(1f))
+                                SecondaryMetric("ALTITUDE ACC.", if (verticalAccuracy >= 0f) String.format(Locale.getDefault(), "±%.0f m", verticalAccuracy) else "—", Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            SecondaryMetric("HEADING", compassDirection(bearing), Modifier.fillMaxWidth())
+                            if (coordinates.isNotBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text("GPS: $coordinates", color = Kx.Dim, fontSize = 10.sp)
+                            }
+                            Spacer(Modifier.height(14.dp))
+                            Text("KILOMETRE SPLITS", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                            if (splits.size <= 1) {
+                                Text("Split times appear after each completed kilometre.", color = Kx.Muted, fontSize = 11.sp)
+                            } else {
+                                splits.drop(1).asReversed().forEach { split ->
+                                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("KM ${split.kilometre}", color = Kx.Cream, fontSize = 12.sp)
+                                        Text(formatDuration(split.movingSeconds), color = Kx.Muted, fontSize = 12.sp)
+                                        Text(String.format(Locale.getDefault(), "%.1f km/h max", split.maxSpeed), color = Kx.Muted, fontSize = 11.sp)
+                                    }
+                                }
+                            }
                         }
                         Spacer(Modifier.height(16.dp))
 
@@ -331,6 +375,17 @@ class CyclingTrackerActivity : ComponentActivity() {
                 if (point.length() < 2) return@mapNotNull null
                 point.optDouble(0, Double.NaN).toFloat() to point.optDouble(1, Double.NaN).toFloat()
             }.filter { it.first.isFinite() && it.second.isFinite() }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun readSplits(raw: String?): List<KmSplit> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            (0 until array.length()).mapNotNull { i ->
+                val item = array.optJSONObject(i) ?: return@mapNotNull null
+                KmSplit(item.optInt("km"), item.optLong("timeSeconds"), item.optDouble("maxSpeed").toFloat())
+            }
         }.getOrDefault(emptyList())
     }
 
@@ -431,6 +486,11 @@ private fun SpeedHistoryGraph(samples: List<Pair<Float, Float>>) {
         }
         drawPath(path, color = Kx.Brass, style = Stroke(width = 3.dp.toPx()))
     }
+}
+
+private fun compassDirection(degrees: Float): String {
+    val directions = listOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+    return directions[((degrees + 22.5f) / 45f).toInt().mod(8)] + String.format(Locale.getDefault(), " · %.0f°", degrees)
 }
 
 private fun formatDuration(seconds: Long): String =

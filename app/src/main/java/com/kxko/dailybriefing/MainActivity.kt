@@ -393,7 +393,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         // Keep the dashboard URL versioned so a fresh app build fetches the newest hosted interface.
         // The dashboard is served from GitHub Pages; its HTML/CSS is not bundled into the APK.
-        private const val ADMIN_URL = "https://kxko4b.github.io/diagrams/admin/?appVersion=2.2"
+        private const val ADMIN_URL = "https://kxko4b.github.io/diagrams/admin/?appVersion=2.4"
         private const val ADMIN_HOST = "kxko4b.github.io"
         private const val AUTO_REFRESH_MS = 60_000L
         private const val STALE_AFTER_MS = 30_000L

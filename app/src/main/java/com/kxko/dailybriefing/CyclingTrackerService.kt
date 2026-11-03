@@ -35,6 +35,12 @@ class CyclingTrackerService : Service(), LocationListener {
     private lateinit var prefs: android.content.SharedPreferences
     private var lastLocation: Location? = null
     private var lastAcceptedMovementAt = 0L
+    private var isMoving = false
+    private var movementCandidateCount = 0
+    private var lastMovementCandidateAt = 0L
+    private var pendingMovementDistance = 0f
+    private var pendingMovementSeconds = 0L
+    private var pendingMovementMaxSpeed = 0f
     private var lastRouteLocation: Location? = null
     private var distanceMetres = 0f
     private var movingSeconds = 0L
@@ -128,6 +134,7 @@ class CyclingTrackerService : Service(), LocationListener {
             .putLong(KEY_TRACKING_STARTED_AT, 0L)
             .putLong(KEY_TRACKING_ENDED_AT, 0L)
             .putBoolean(KEY_TRACKING, false)
+            .putBoolean(KEY_IS_MOVING, false)
             .apply()
         distanceMetres = 0f
         movingSeconds = 0L
@@ -142,6 +149,12 @@ class CyclingTrackerService : Service(), LocationListener {
         splitRecords.put(JSONObject().put("km", 0).put("timeSeconds", 0).put("maxSpeed", 0))
         lastLocation = null
         lastAcceptedMovementAt = 0L
+        isMoving = false
+        movementCandidateCount = 0
+        lastMovementCandidateAt = 0L
+        pendingMovementDistance = 0f
+        pendingMovementSeconds = 0L
+        pendingMovementMaxSpeed = 0f
         lastRouteLocation = null
         startForeground(NOTIFICATION_ID, buildNotification("Armed — waiting for Mi Fitness workout…"))
         if (prefs.getBoolean(WatchWorkoutNotificationListener.KEY_ACTIVE, false)) beginLocationTracking()
@@ -209,14 +222,47 @@ class CyclingTrackerService : Service(), LocationListener {
             val elapsedSeconds = ((location.time - previous.time).coerceAtLeast(1L)) / 1000f
             val measuredSpeed = segment / elapsedSeconds
             val movementThreshold = maxOf(8f, location.accuracy * 1.2f)
-            if (segment >= movementThreshold && measuredSpeed in 0.8f..16.7f && segment <= 120f) {
-                distanceMetres += segment
-                val acceptedSeconds = elapsedSeconds.toLong().coerceAtLeast(1L)
-                movingSeconds += acceptedSeconds
-                currentSplitDistance += segment
-                currentSplitMovingSeconds += acceptedSeconds
-                speedKmh = measuredSpeed * 3.6f
-                currentSplitMaxSpeed = maxOf(currentSplitMaxSpeed, speedKmh)
+            val movementCandidate = segment >= movementThreshold &&
+                measuredSpeed in 0.8f..16.7f && segment <= 120f
+            if (movementCandidate) {
+                val candidateSpeedKmh = measuredSpeed * 3.6f
+                val candidateSeconds = elapsedSeconds.toLong().coerceAtLeast(1L)
+                if (!isMoving) {
+                    if (lastMovementCandidateAt == 0L || now - lastMovementCandidateAt > 6000L) {
+                        movementCandidateCount = 0
+                        pendingMovementDistance = 0f
+                        pendingMovementSeconds = 0L
+                        pendingMovementMaxSpeed = 0f
+                    }
+                    movementCandidateCount++
+                    pendingMovementDistance += segment
+                    pendingMovementSeconds += candidateSeconds
+                    pendingMovementMaxSpeed = maxOf(pendingMovementMaxSpeed, candidateSpeedKmh)
+                    lastMovementCandidateAt = now
+                    lastLocation = location
+                    // Require two consecutive plausible movement segments before declaring GO.
+                    if (movementCandidateCount < 2) {
+                        speedKmh = 0f
+                    } else {
+                        isMoving = true
+                        distanceMetres += pendingMovementDistance
+                        movingSeconds += pendingMovementSeconds
+                        currentSplitDistance += pendingMovementDistance
+                        currentSplitMovingSeconds += pendingMovementSeconds
+                        speedKmh = candidateSpeedKmh
+                        currentSplitMaxSpeed = maxOf(currentSplitMaxSpeed, pendingMovementMaxSpeed)
+                        pendingMovementDistance = 0f
+                        pendingMovementSeconds = 0L
+                        pendingMovementMaxSpeed = 0f
+                    }
+                } else {
+                    distanceMetres += segment
+                    movingSeconds += candidateSeconds
+                    currentSplitDistance += segment
+                    currentSplitMovingSeconds += candidateSeconds
+                    speedKmh = candidateSpeedKmh
+                    currentSplitMaxSpeed = maxOf(currentSplitMaxSpeed, speedKmh)
+                }
                 while (distanceMetres >= nextSplitKm * 1000f) {
                     splitRecords.put(JSONObject()
                         .put("km", nextSplitKm)
@@ -227,8 +273,8 @@ class CyclingTrackerService : Service(), LocationListener {
                     currentSplitMovingSeconds = 0L
                     currentSplitMaxSpeed = 0f
                 }
-                lastAcceptedMovementAt = now
-                if (location.hasAltitude() && location.accuracy <= 20f) {
+                if (isMoving) lastAcceptedMovementAt = now
+                if (isMoving && location.hasAltitude() && location.accuracy <= 20f) {
                     val altitude = location.altitude
                     val previousAltitude = lastAltitude
                     if (previousAltitude != null) {
@@ -250,17 +296,34 @@ class CyclingTrackerService : Service(), LocationListener {
                     for (index in speedHistory.length() - 120 until speedHistory.length()) trimmed.put(speedHistory.getJSONArray(index))
                 } else speedHistory
                 prefs.edit().putString(KEY_SPEED_HISTORY, trimmedSpeedHistory.toString()).apply()
-                if (location.accuracy <= 20f) appendRoutePoint(location)
-                lastLocation = location
+                if (isMoving && location.accuracy <= 20f) appendRoutePoint(location)
+                if (isMoving) lastLocation = location
             } else if (segment >= movementThreshold || elapsedSeconds > 30f) {
                 // Large but implausibly slow drift is GPS wander; reset the anchor.
                 lastLocation = location
+                if (!isMoving) {
+                    movementCandidateCount = 0
+                    lastMovementCandidateAt = 0L
+                    pendingMovementDistance = 0f
+                    pendingMovementSeconds = 0L
+                    pendingMovementMaxSpeed = 0f
+                }
             }
         } else {
             lastLocation = location
         }
-        // Ignore isolated GPS speed spikes; show zero after four seconds without confirmed movement.
-        if (lastAcceptedMovementAt == 0L || now - lastAcceptedMovementAt > 4000L) speedKmh = 0f
+        // Stop only after a sustained quiet window; brief GPS gaps won't flicker STOP/GO.
+        if (isMoving && lastAcceptedMovementAt > 0L && now - lastAcceptedMovementAt > 10000L) {
+            isMoving = false
+            movementCandidateCount = 0
+            lastMovementCandidateAt = 0L
+            pendingMovementDistance = 0f
+            pendingMovementSeconds = 0L
+            pendingMovementMaxSpeed = 0f
+            speedKmh = 0f
+        }
+        if (!isMoving || lastAcceptedMovementAt == 0L || now - lastAcceptedMovementAt > 10000L) speedKmh = 0f
+        prefs.edit().putBoolean(KEY_IS_MOVING, isMoving).apply()
         val maxSpeed = maxOf(prefs.getFloat(KEY_MAX_SPEED, 0f), speedKmh)
         currentLatitude = location.latitude
         currentLongitude = location.longitude
@@ -382,6 +445,7 @@ class CyclingTrackerService : Service(), LocationListener {
         const val ACTION_STATS_UPDATED = "com.kxko.dailybriefing.CYCLING_STATS_UPDATED"
         const val KEY_ARMED = "cycling_auto_tracking_armed"
         const val KEY_TRACKING = "cycling_gps_tracking"
+        const val KEY_IS_MOVING = "cycling_is_moving"
         const val KEY_DISTANCE = "cycling_distance_metres"
         const val KEY_SPEED = "cycling_speed_kmh"
         const val KEY_MAX_SPEED = "cycling_max_speed_kmh"

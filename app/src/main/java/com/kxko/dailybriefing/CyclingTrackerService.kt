@@ -210,7 +210,7 @@ class CyclingTrackerService : Service(), LocationListener {
             } else {
                 LocationManager.NETWORK_PROVIDER
             }
-            locationManager.requestLocationUpdates(provider, 1000L, 1f, this)
+            locationManager.requestLocationUpdates(provider, 1000L, 0f, this)
             if (Build.VERSION.SDK_INT >= 24 && provider == LocationManager.GPS_PROVIDER) {
                 runCatching { locationManager.registerGnssStatusCallback(gnssCallback, Handler(Looper.getMainLooper())) }
             }
@@ -449,6 +449,7 @@ class CyclingTrackerService : Service(), LocationListener {
         val ride = JSONObject()
             .put("startedAt", startedAt)
             .put("endedAt", endedAt)
+            .put("endReason", prefs.getString(KEY_LAST_END_REASON, "") ?: "")
             .put("elapsedSeconds", elapsedSeconds)
             .put("stoppedSeconds", (elapsedSeconds - movingSeconds).coerceAtLeast(0L))
             .put("distance", distanceMetres)
@@ -481,6 +482,7 @@ class CyclingTrackerService : Service(), LocationListener {
 
     private fun finishRide(reason: String) {
         if (!prefs.getBoolean(KEY_TRACKING, false)) return
+        prefs.edit().putString(KEY_LAST_END_REASON, reason).apply()
         saveCompletedRide()
         runCatching { locationManager.removeUpdates(this) }
         if (Build.VERSION.SDK_INT >= 24) runCatching { locationManager.unregisterGnssStatusCallback(gnssCallback) }

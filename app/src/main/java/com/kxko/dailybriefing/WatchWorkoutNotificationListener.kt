@@ -53,8 +53,9 @@ class WatchWorkoutNotificationListener : NotificationListenerService() {
         val looksLikeActiveSport = sportTitle.any(text::contains) &&
             !listOf("finished", "completed", "beendet", "abgeschlossen").any(text::contains)
 
-        if (hasWorkout && (hasStart || looksLikeActiveSport)) {
-            val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val finishedWorkout = listOf("finished", "completed", "beendet", "abgeschlossen", "training beendet").any(text::contains)
+        if (hasWorkout && (hasStart || looksLikeActiveSport) && !finishedWorkout) {
             val wasActive = prefs.getBoolean(KEY_ACTIVE, false)
             prefs.edit()
                 .putBoolean(KEY_ACTIVE, true)
@@ -64,6 +65,15 @@ class WatchWorkoutNotificationListener : NotificationListenerService() {
                 .putString(KEY_NOTIFICATION_KEY, sbn.key)
                 .apply()
             if (!wasActive) sendBroadcast(Intent(ACTION_WORKOUT_STARTED).setPackage(packageName))
+        } else if (finishedWorkout && prefs.getBoolean(KEY_ACTIVE, false) &&
+            prefs.getString(KEY_NOTIFICATION_KEY, "") == sbn.key) {
+            prefs.edit()
+                .putBoolean(KEY_ACTIVE, false)
+                .putBoolean(KEY_PENDING_START, false)
+                .putString(KEY_LAST_EVENT, "Mi Fitness workout completed")
+                .remove(KEY_NOTIFICATION_KEY)
+                .apply()
+            sendBroadcast(Intent(ACTION_WORKOUT_ENDED).setPackage(packageName))
         }
     }
 

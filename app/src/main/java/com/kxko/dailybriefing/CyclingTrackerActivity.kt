@@ -384,13 +384,17 @@ class CyclingTrackerActivity : ComponentActivity() {
                                 } else {
                                     Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
                                         rideHistory.asReversed().forEach { ride ->
-                                            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                                            Column(
+                                                Modifier.fillMaxWidth()
+                                                    .clickable {
+                                                        selectedRide = ride
+                                                        showHistory = false
+                                                    }
+                                                    .padding(vertical = 8.dp)
+                                            ) {
                                                 Text(SimpleDateFormat("dd MMM yyyy · HH:mm", Locale.getDefault()).format(Date(ride.startedAt)), color = Kx.Brass, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                                 Text(String.format(Locale.getDefault(), "%.2f km  ·  %s elapsed  ·  %s moving  ·  %.1f km/h max  ·  +%.0f m", ride.distanceMetres / 1000f, formatDuration(ride.elapsedSeconds), formatDuration(ride.movingSeconds), ride.maxSpeed, ride.elevationGain), color = Kx.Cream, fontSize = 12.sp)
                                                 Text("Tap to view route map and full telemetry", color = Kx.Muted, fontSize = 10.sp)
-                                            }.clickable {
-                                                selectedRide = ride
-                                                showHistory = false
                                             }
                                         }
                                     }

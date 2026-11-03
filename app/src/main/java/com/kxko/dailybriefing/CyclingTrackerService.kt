@@ -395,6 +395,7 @@ class CyclingTrackerService : Service(), LocationListener {
         prefs.edit()
             .putBoolean(KEY_TRACKING, false)
             .putBoolean(KEY_ARMED, false)
+            .putBoolean(KEY_IS_MOVING, false)
             .putLong(KEY_TRACKING_ENDED_AT, System.currentTimeMillis())
             .putFloat(KEY_SPEED, 0f)
             .apply()

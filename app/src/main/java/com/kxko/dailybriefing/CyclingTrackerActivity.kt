@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -47,8 +48,35 @@ import java.text.SimpleDateFormat
 import java.util.Date
 
 private data class RidePoint(val latitude: Double, val longitude: Double)
-private data class RideSummary(val startedAt: Long, val distanceMetres: Float, val elapsedSeconds: Long, val movingSeconds: Long, val maxSpeed: Float, val elevationGain: Float)
-private data class KmSplit(val kilometre: Int, val movingSeconds: Long, val maxSpeed: Float)
+private data class RideSummary(
+    val startedAt: Long,
+    val distanceMetres: Float,
+    val elapsedSeconds: Long,
+    val movingSeconds: Long,
+    val maxSpeed: Float,
+    val elevationGain: Float,
+    val averageSpeed: Float = 0f,
+    val stoppedSeconds: Long = 0L,
+    val endedAt: Long = 0L,
+    val route: List<RidePoint> = emptyList(),
+    val speedHistory: List<Pair<Float, Float>> = emptyList(),
+    val splits: List<KmSplit> = emptyList(),
+    val minimumAltitude: Float = 0f,
+    val maximumAltitude: Float = 0f,
+    val maximumGrade: Float = 0f,
+    val gpsFixCount: Int = 0,
+    val averageGpsAccuracy: Float = -1f,
+    val lastGpsAccuracy: Float = -1f,
+    val lastSpeedAccuracy: Float = -1f,
+    val lastVerticalAccuracy: Float = -1f,
+    val lastHeading: Float = 0f,
+    val satellitesVisible: Int = 0,
+    val satellitesUsed: Int = 0,
+    val batteryPercent: Int = -1,
+    val startCoordinates: String = "",
+    val endCoordinates: String = ""
+)
+private data class KmSplit(val kilometre: Int, val movingSeconds: Long, val maxSpeed: Float, val partial: Boolean = false)
 
 class CyclingTrackerActivity : ComponentActivity() {
     private var refresh by mutableIntStateOf(0)
@@ -75,6 +103,8 @@ class CyclingTrackerActivity : ComponentActivity() {
         }
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, RECEIVER_NOT_EXPORTED)
         else @Suppress("DEPRECATION") registerReceiver(receiver, filter)
+
+        if (hasLocationPermission() && WatchWorkoutNotificationListener.hasAccess(this)) armAutomaticTracking()
 
         setContent {
             KxkoTheme {
@@ -116,6 +146,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                 var followLocation by remember { mutableStateOf(true) }
                 var showDetails by remember { mutableStateOf(false) }
                 var showHistory by remember { mutableStateOf(false) }
+                var selectedRide by remember { mutableStateOf<RideSummary?>(null) }
 
                 LaunchedEffect(tracking) {
                     while (tracking) {
@@ -321,21 +352,31 @@ class CyclingTrackerActivity : ComponentActivity() {
                                 )
                                 Spacer(Modifier.height(8.dp))
                             }
-                            KxButton(
-                                text = if (!hasLocation) "Grant location & arm tracking" else if (armed) "Re-arm automatic tracking" else "Arm automatic GPS tracking",
-                                onClick = { requestLocationAndArm() },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = hasAccess
-                            )
+                            if (!hasLocation) {
+                                KxButton(
+                                    text = "Grant location permission",
+                                    onClick = { requestLocationAndArm() },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
                             if (!hasAccess) {
+                                if (!hasLocation) Spacer(Modifier.height(8.dp))
+                                KxButton(
+                                    text = "Enable Mi Fitness notification access",
+                                    onClick = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                                 Spacer(Modifier.height(5.dp))
-                                Text("Allow notification access so Kxko can detect Mi Fitness's “Trainieren...” notification.", color = Kx.Muted, fontSize = 11.sp)
+                                Text("Allow notification access so Kxko can detect Mi Fitness's “Trainieren...” workout notification.", color = Kx.Muted, fontSize = 11.sp)
+                            }
+                            if (hasLocation && hasAccess) {
+                                Text("Automatic detection is always armed. Start a workout on your watch to begin GPS tracking.", color = Kx.Muted, fontSize = 11.sp)
                             }
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                if (tracking) "GPS active · Route saved on this device" else if (armed) "Watch detection armed · Keep tracker notification enabled" else "OpenStreetMap · Mi Fitness watch detection",
+                                if (tracking) "GPS active · Route saved on this device" else if (armed) "Always armed · Waiting for Mi Fitness" else "Grant permissions to enable automatic detection",
                                 color = Kx.Dim, fontSize = 10.sp, modifier = Modifier.weight(1f)
                             )
                             Text("© OpenStreetMap", color = Kx.Dim, fontSize = 10.sp)
@@ -354,12 +395,98 @@ class CyclingTrackerActivity : ComponentActivity() {
                                             Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                                                 Text(SimpleDateFormat("dd MMM yyyy · HH:mm", Locale.getDefault()).format(Date(ride.startedAt)), color = Kx.Brass, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                                 Text(String.format(Locale.getDefault(), "%.2f km  ·  %s elapsed  ·  %s moving  ·  %.1f km/h max  ·  +%.0f m", ride.distanceMetres / 1000f, formatDuration(ride.elapsedSeconds), formatDuration(ride.movingSeconds), ride.maxSpeed, ride.elevationGain), color = Kx.Cream, fontSize = 12.sp)
+                                                Text("Tap to view route map and full telemetry", color = Kx.Muted, fontSize = 10.sp)
+                                            }.clickable {
+                                                selectedRide = ride
+                                                showHistory = false
                                             }
                                         }
                                     }
                                 }
                             },
                             confirmButton = { TextButton(onClick = { showHistory = false }) { Text("Close") } }
+                        )
+                    }
+                    selectedRide?.let { ride ->
+                        AlertDialog(
+                            onDismissRequest = { selectedRide = null },
+                            title = {
+                                Text(SimpleDateFormat("dd MMM yyyy · HH:mm", Locale.getDefault()).format(Date(ride.startedAt)))
+                            },
+                            text = {
+                                Column(Modifier.heightIn(max = 540.dp).verticalScroll(rememberScrollState())) {
+                                    if (ride.route.size > 1) {
+                                        Text("ROUTE MAP", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                                        Spacer(Modifier.height(6.dp))
+                                        AndroidView(
+                                            factory = {
+                                                MapView(this@CyclingTrackerActivity).apply {
+                                                    setTileSource(TileSourceFactory.MAPNIK)
+                                                    setMultiTouchControls(true)
+                                                    setBuiltInZoomControls(true)
+                                                    onResume()
+                                                }
+                                            },
+                                            modifier = Modifier.fillMaxWidth().height(220.dp),
+                                            update = { map ->
+                                                map.overlays.clear()
+                                                val points = ride.route.map { GeoPoint(it.latitude, it.longitude) }
+                                                map.overlays.add(Polyline(map).apply {
+                                                    setPoints(points)
+                                                    outlinePaint.color = android.graphics.Color.rgb(191, 145, 82)
+                                                    outlinePaint.strokeWidth = 10f
+                                                    outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                                                    outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
+                                                })
+                                                points.firstOrNull()?.let { start ->
+                                                    map.overlays.add(Marker(map).apply {
+                                                        position = start
+                                                        title = "Start"
+                                                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                                    })
+                                                }
+                                                points.lastOrNull()?.let { finish ->
+                                                    map.overlays.add(Marker(map).apply {
+                                                        position = finish
+                                                        title = "Finish"
+                                                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                                    })
+                                                    map.controller.setCenter(finish)
+                                                    map.controller.setZoom(14.5)
+                                                }
+                                                map.invalidate()
+                                            }
+                                        )
+                                    } else {
+                                        Text("No route points were saved for this ride.", color = Kx.Muted, fontSize = 11.sp)
+                                    }
+                                    Spacer(Modifier.height(12.dp))
+                                    Text("RIDE SUMMARY", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                                    Text(String.format(Locale.getDefault(), "Distance: %.2f km", ride.distanceMetres / 1000f), color = Kx.Cream, fontSize = 13.sp)
+                                    Text("Elapsed: " + formatDuration(ride.elapsedSeconds) + " · Moving: " + formatDuration(ride.movingSeconds) + " · Stopped: " + formatDuration(ride.stoppedSeconds), color = Kx.Cream, fontSize = 12.sp)
+                                    Text(String.format(Locale.getDefault(), "Average: %.1f km/h · Maximum: %.1f km/h", ride.averageSpeed, ride.maxSpeed), color = Kx.Cream, fontSize = 12.sp)
+                                    Text(String.format(Locale.getDefault(), "Climb: +%.0f m · Altitude range: %.0f–%.0f m", ride.elevationGain, ride.minimumAltitude, ride.maximumAltitude), color = Kx.Cream, fontSize = 12.sp)
+                                    Text(String.format(Locale.getDefault(), "Maximum estimated grade: %.1f%%", ride.maximumGrade), color = Kx.Cream, fontSize = 12.sp)
+                                    Spacer(Modifier.height(10.dp))
+                                    Text("SPEED OVER TIME", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                                    SpeedHistoryGraph(ride.speedHistory)
+                                    Spacer(Modifier.height(10.dp))
+                                    Text("GPS & DEVICE TELEMETRY", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                                    Text("GPS fixes: " + ride.gpsFixCount + " · Average accuracy: " + (if (ride.averageGpsAccuracy >= 0f) String.format(Locale.getDefault(), "±%.1f m", ride.averageGpsAccuracy) else "—"), color = Kx.Muted, fontSize = 11.sp)
+                                    Text("Last fix: " + (if (ride.lastGpsAccuracy >= 0f) String.format(Locale.getDefault(), "±%.1f m", ride.lastGpsAccuracy) else "—") + " · Speed accuracy: " + (if (ride.lastSpeedAccuracy >= 0f) String.format(Locale.getDefault(), "±%.1f m/s", ride.lastSpeedAccuracy) else "—"), color = Kx.Muted, fontSize = 11.sp)
+                                    Text("Vertical accuracy: " + (if (ride.lastVerticalAccuracy >= 0f) String.format(Locale.getDefault(), "±%.1f m", ride.lastVerticalAccuracy) else "—") + " · Heading: " + compassDirection(ride.lastHeading), color = Kx.Muted, fontSize = 11.sp)
+                                    Text("Satellites: " + ride.satellitesUsed + "/" + ride.satellitesVisible + " used · Battery at finish: " + (if (ride.batteryPercent >= 0) ride.batteryPercent.toString() + "%" else "—"), color = Kx.Muted, fontSize = 11.sp)
+                                    if (ride.startCoordinates.isNotBlank()) Text("Start: " + ride.startCoordinates, color = Kx.Dim, fontSize = 10.sp)
+                                    if (ride.endCoordinates.isNotBlank()) Text("Finish: " + ride.endCoordinates, color = Kx.Dim, fontSize = 10.sp)
+                                    Spacer(Modifier.height(10.dp))
+                                    Text("KILOMETRE SPLITS", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                                    if (ride.splits.isEmpty()) Text("No kilometre splits recorded.", color = Kx.Muted, fontSize = 11.sp)
+                                    ride.splits.forEach { split ->
+                                        Text((if (split.partial) "PARTIAL " else "") + "KM " + split.kilometre + " · " + formatDuration(split.movingSeconds) + " · " + String.format(Locale.getDefault(), "%.1f km/h max", split.maxSpeed), color = Kx.Muted, fontSize = 11.sp)
+                                    }
+                                }
+                            },
+                            confirmButton = { TextButton(onClick = { selectedRide = null }) { Text("Close") } }
                         )
                     }
                 }
@@ -385,7 +512,7 @@ class CyclingTrackerActivity : ComponentActivity() {
             val array = JSONArray(raw)
             (0 until array.length()).mapNotNull { i ->
                 val item = array.optJSONObject(i) ?: return@mapNotNull null
-                KmSplit(item.optInt("km"), item.optLong("timeSeconds"), item.optDouble("maxSpeed").toFloat())
+                KmSplit(item.optInt("km"), item.optLong("timeSeconds"), item.optDouble("maxSpeed").toFloat(), item.optBoolean("partial", false))
             }
         }.getOrDefault(emptyList())
     }
@@ -396,7 +523,34 @@ class CyclingTrackerActivity : ComponentActivity() {
             val array = JSONArray(raw)
             (0 until array.length()).mapNotNull { i ->
                 val item = array.optJSONObject(i) ?: return@mapNotNull null
-                RideSummary(item.optLong("startedAt"), item.optDouble("distance").toFloat(), item.optLong("elapsedSeconds"), item.optLong("movingSeconds"), item.optDouble("maxSpeed").toFloat(), item.optDouble("elevationGain").toFloat())
+                RideSummary(
+                    startedAt = item.optLong("startedAt"),
+                    distanceMetres = item.optDouble("distance").toFloat(),
+                    elapsedSeconds = item.optLong("elapsedSeconds"),
+                    movingSeconds = item.optLong("movingSeconds"),
+                    maxSpeed = item.optDouble("maxSpeed").toFloat(),
+                    elevationGain = item.optDouble("elevationGain").toFloat(),
+                    averageSpeed = item.optDouble("averageSpeed").toFloat(),
+                    stoppedSeconds = item.optLong("stoppedSeconds"),
+                    endedAt = item.optLong("endedAt"),
+                    route = readRoute(item.optJSONArray("route")?.toString()),
+                    speedHistory = readSpeedSamples(item.optJSONArray("speedHistory")?.toString()),
+                    splits = readSplits(item.optJSONArray("splits")?.toString()),
+                    minimumAltitude = item.optDouble("minimumAltitude").toFloat(),
+                    maximumAltitude = item.optDouble("maximumAltitude").toFloat(),
+                    maximumGrade = item.optDouble("maximumGrade").toFloat(),
+                    gpsFixCount = item.optInt("gpsFixCount"),
+                    averageGpsAccuracy = item.optDouble("averageGpsAccuracy", -1.0).toFloat(),
+                    lastGpsAccuracy = item.optDouble("lastGpsAccuracy", -1.0).toFloat(),
+                    lastSpeedAccuracy = item.optDouble("lastSpeedAccuracy", -1.0).toFloat(),
+                    lastVerticalAccuracy = item.optDouble("lastVerticalAccuracy", -1.0).toFloat(),
+                    lastHeading = item.optDouble("lastHeading").toFloat(),
+                    satellitesVisible = item.optInt("satellitesVisible"),
+                    satellitesUsed = item.optInt("satellitesUsed"),
+                    batteryPercent = item.optInt("batteryPercent", -1),
+                    startCoordinates = item.optString("startCoordinates"),
+                    endCoordinates = item.optString("endCoordinates")
+                )
             }
         }.getOrDefault(emptyList())
     }

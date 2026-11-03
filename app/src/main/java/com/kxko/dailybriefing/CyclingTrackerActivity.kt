@@ -74,7 +74,8 @@ private data class RideSummary(
     val satellitesUsed: Int = 0,
     val batteryPercent: Int = -1,
     val startCoordinates: String = "",
-    val endCoordinates: String = ""
+    val endCoordinates: String = "",
+    val endReason: String = ""
 )
 private data class KmSplit(val kilometre: Int, val movingSeconds: Long, val maxSpeed: Float, val partial: Boolean = false)
 
@@ -447,8 +448,11 @@ class CyclingTrackerActivity : ComponentActivity() {
                                                         title = "Finish"
                                                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                                                     })
-                                                    map.controller.setCenter(finish)
-                                                    map.controller.setZoom(14.5)
+                                                    val north = points.maxOf { it.latitude }
+                                                    val south = points.minOf { it.latitude }
+                                                    val east = points.maxOf { it.longitude }
+                                                    val west = points.minOf { it.longitude }
+                                                    map.zoomToBoundingBox(org.osmdroid.util.BoundingBox(north, east, south, west), false, 48)
                                                 }
                                                 map.invalidate()
                                             }
@@ -463,6 +467,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                                     Text(String.format(Locale.getDefault(), "Average: %.1f km/h · Maximum: %.1f km/h", ride.averageSpeed, ride.maxSpeed), color = Kx.Cream, fontSize = 12.sp)
                                     Text(String.format(Locale.getDefault(), "Climb: +%.0f m · Altitude range: %.0f–%.0f m", ride.elevationGain, ride.minimumAltitude, ride.maximumAltitude), color = Kx.Cream, fontSize = 12.sp)
                                     Text(String.format(Locale.getDefault(), "Maximum estimated grade: %.1f%%", ride.maximumGrade), color = Kx.Cream, fontSize = 12.sp)
+                                    if (ride.endReason.isNotBlank()) Text("Session ended: " + ride.endReason, color = Kx.Muted, fontSize = 11.sp)
                                     Spacer(Modifier.height(10.dp))
                                     Text("SPEED OVER TIME", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
                                     SpeedHistoryGraph(ride.speedHistory)
@@ -545,7 +550,8 @@ class CyclingTrackerActivity : ComponentActivity() {
                     satellitesUsed = item.optInt("satellitesUsed"),
                     batteryPercent = item.optInt("batteryPercent", -1),
                     startCoordinates = item.optString("startCoordinates"),
-                    endCoordinates = item.optString("endCoordinates")
+                    endCoordinates = item.optString("endCoordinates"),
+                    endReason = item.optString("endReason")
                 )
             }
         }.getOrDefault(emptyList())

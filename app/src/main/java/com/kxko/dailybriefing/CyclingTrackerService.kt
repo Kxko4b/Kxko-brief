@@ -132,9 +132,7 @@ class CyclingTrackerService : Service(), LocationListener {
         if (prefs.getBoolean(WatchWorkoutNotificationListener.KEY_ACTIVE, false)) beginLocationTracking()
     }
 
-    private fun armForWorkout() {
-        createChannel()
-        resetRideData()
+    private fun resetRideData() {
         prefs.edit()
             .putBoolean(KEY_ARMED, true)
             .putFloat(KEY_DISTANCE, 0f)

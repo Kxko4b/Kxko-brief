@@ -571,7 +571,8 @@ class CyclingTrackerService : Service(), LocationListener {
         const val KEY_RIDE_HISTORY = "cycling_ride_history"
         const val KEY_LAST_END_REASON = "cycling_last_end_reason"
         private val AUTO_END_LOCATIONS = listOf(
-            AutoEndLocation("IGS Busecker Tal", 50.60275, 8.77400, 120f)
+            AutoEndLocation("IGS Busecker Tal", 50.60275, 8.77400, 120f),
+            AutoEndLocation("ALDI SÜD, Oberlachweg 7, Gießen", 50.59437, 8.71325, 120f)
         )
         private const val CHANNEL_ID = "cycling_tracking"
         private const val NOTIFICATION_ID = 648

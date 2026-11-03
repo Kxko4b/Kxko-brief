@@ -76,13 +76,25 @@ class CyclingTrackerService : Service(), LocationListener {
     }
     private var lastNotificationUpdate = 0L
     private var locationUpdatesRunning = false
+    private var gpsFixCount = 0
+    private var gpsAccuracyTotal = 0.0
+    private var minimumAltitude = Double.POSITIVE_INFINITY
+    private var maximumAltitude = Double.NEGATIVE_INFINITY
+    private var maximumGradePercent = 0f
+    private var geofenceDwellStartedAt = 0L
+    private var geofenceDwellName = ""
 
     private val workoutReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == WatchWorkoutNotificationListener.ACTION_WORKOUT_STARTED &&
-                prefs.getBoolean(WatchWorkoutNotificationListener.KEY_ACTIVE, false) &&
-                prefs.getBoolean(KEY_ARMED, false)
-            ) beginLocationTracking()
+            when (intent?.action) {
+                WatchWorkoutNotificationListener.ACTION_WORKOUT_STARTED -> {
+                    if (prefs.getBoolean(WatchWorkoutNotificationListener.KEY_ACTIVE, false) &&
+                        prefs.getBoolean(KEY_ARMED, false)) beginLocationTracking()
+                }
+                WatchWorkoutNotificationListener.ACTION_WORKOUT_ENDED -> {
+                    if (prefs.getBoolean(KEY_TRACKING, false)) finishRide("Mi Fitness workout notification ended")
+                }
+            }
         }
     }
 
@@ -90,27 +102,39 @@ class CyclingTrackerService : Service(), LocationListener {
         super.onCreate()
         prefs = getSharedPreferences(WatchWorkoutNotificationListener.PREFS, Context.MODE_PRIVATE)
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val filter = IntentFilter(WatchWorkoutNotificationListener.ACTION_WORKOUT_STARTED)
+        val filter = IntentFilter().apply {
+            addAction(WatchWorkoutNotificationListener.ACTION_WORKOUT_STARTED)
+            addAction(WatchWorkoutNotificationListener.ACTION_WORKOUT_ENDED)
+        }
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(workoutReceiver, filter, RECEIVER_NOT_EXPORTED)
         else @Suppress("DEPRECATION") registerReceiver(workoutReceiver, filter)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP -> stopTracking()
-            ACTION_ARM -> armForWorkout()
+            ACTION_STOP -> finishRide("Finished manually")
+            ACTION_ARM -> ensureAlwaysArmed()
             ACTION_START -> {
                 createChannel()
                 startForeground(NOTIFICATION_ID, buildNotification("Starting GPS…"))
                 beginLocationTracking()
             }
-            null -> if (prefs.getBoolean(KEY_ARMED, false)) armForWorkout()
+            null -> ensureAlwaysArmed()
         }
         return START_STICKY
     }
 
+    private fun ensureAlwaysArmed() {
+        createChannel()
+        if (!prefs.getBoolean(KEY_ARMED, false)) resetRideData()
+        prefs.edit().putBoolean(KEY_ARMED, true).apply()
+        startForeground(NOTIFICATION_ID, buildNotification("Always armed — waiting for Mi Fitness…"))
+        if (prefs.getBoolean(WatchWorkoutNotificationListener.KEY_ACTIVE, false)) beginLocationTracking()
+    }
+
     private fun armForWorkout() {
         createChannel()
+        resetRideData()
         prefs.edit()
             .putBoolean(KEY_ARMED, true)
             .putFloat(KEY_DISTANCE, 0f)
@@ -156,12 +180,18 @@ class CyclingTrackerService : Service(), LocationListener {
         pendingMovementSeconds = 0L
         pendingMovementMaxSpeed = 0f
         lastRouteLocation = null
-        startForeground(NOTIFICATION_ID, buildNotification("Armed — waiting for Mi Fitness workout…"))
-        if (prefs.getBoolean(WatchWorkoutNotificationListener.KEY_ACTIVE, false)) beginLocationTracking()
+        gpsFixCount = 0
+        gpsAccuracyTotal = 0.0
+        minimumAltitude = Double.POSITIVE_INFINITY
+        maximumAltitude = Double.NEGATIVE_INFINITY
+        maximumGradePercent = 0f
+        geofenceDwellStartedAt = 0L
+        geofenceDwellName = ""
     }
 
     private fun beginLocationTracking() {
         if (locationUpdatesRunning) return
+        if (prefs.getLong(KEY_TRACKING_ENDED_AT, 0L) > 0L) resetRideData()
         val fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!fine && !coarse) {
@@ -214,6 +244,13 @@ class CyclingTrackerService : Service(), LocationListener {
     override fun onLocationChanged(location: Location) {
         val previous = lastLocation
         val now = System.currentTimeMillis()
+        if (checkLocationAutoEnd(location, now)) return
+        gpsFixCount++
+        if (location.accuracy >= 0f) gpsAccuracyTotal += location.accuracy.toDouble()
+        if (location.hasAltitude()) {
+            minimumAltitude = minOf(minimumAltitude, location.altitude)
+            maximumAltitude = maxOf(maximumAltitude, location.altitude)
+        }
         var speedKmh = 0f
         if (previous != null && location.accuracy <= 25f && previous.accuracy <= 35f) {
             // Compare against the last accepted fix, not every noisy one-second fix.
@@ -284,6 +321,7 @@ class CyclingTrackerService : Service(), LocationListener {
                             elevationGainMetres += climb.toFloat()
                             val horizontal = maxOf(segment.toDouble(), 1.0)
                             currentGradePercent = ((climb / horizontal) * 100.0).toFloat().coerceIn(-20f, 20f)
+                            maximumGradePercent = maxOf(maximumGradePercent, kotlin.math.abs(currentGradePercent))
                         } else currentGradePercent = 0f
                     }
                     lastAltitude = altitude
@@ -360,6 +398,30 @@ class CyclingTrackerService : Service(), LocationListener {
         sendBroadcast(Intent(ACTION_STATS_UPDATED).setPackage(packageName))
     }
 
+    private fun checkLocationAutoEnd(location: Location, now: Long): Boolean {
+        if (location.accuracy > 60f) return false
+        val matching = AUTO_END_LOCATIONS.firstOrNull { target ->
+            val targetLocation = Location("auto-end").apply {
+                latitude = target.latitude
+                longitude = target.longitude
+            }
+            location.distanceTo(targetLocation) <= target.radiusMetres
+        }
+        if (matching == null) {
+            geofenceDwellStartedAt = 0L
+            geofenceDwellName = ""
+            return false
+        }
+        if (geofenceDwellName != matching.name) {
+            geofenceDwellName = matching.name
+            geofenceDwellStartedAt = now
+        } else if (geofenceDwellStartedAt > 0L && now - geofenceDwellStartedAt >= 120_000L) {
+            finishRide("Stayed at " + matching.name + " for 2 minutes")
+            return true
+        }
+        return false
+    }
+
     private fun saveCompletedRide() {
         if (distanceMetres < 50f) return
         val history = runCatching { JSONArray(prefs.getString(KEY_RIDE_HISTORY, "[]") ?: "[]") }
@@ -371,14 +433,42 @@ class CyclingTrackerService : Service(), LocationListener {
         for (index in 0 until route.length() step step) compactRoute.put(route.getJSONArray(index))
         val startedAt = prefs.getLong(KEY_TRACKING_STARTED_AT, System.currentTimeMillis())
         val endedAt = System.currentTimeMillis()
+        val elapsedSeconds = ((endedAt - startedAt).coerceAtLeast(0L)) / 1000L
+        val completedSplits = JSONArray(prefs.getString(KEY_SPLITS, "[]") ?: "[]")
+        if (currentSplitDistance > 0f) {
+            completedSplits.put(JSONObject()
+                .put("km", nextSplitKm)
+                .put("timeSeconds", currentSplitMovingSeconds)
+                .put("maxSpeed", currentSplitMaxSpeed)
+                .put("partial", true))
+        }
+        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val batteryPercent = if (battery != null) {
+            val level = battery.getIntExtra("level", -1)
+            val scale = battery.getIntExtra("scale", -1)
+            if (level >= 0 && scale > 0) (level * 100 / scale) else -1
+        } else -1
         val ride = JSONObject()
             .put("startedAt", startedAt)
             .put("endedAt", endedAt)
-            .put("elapsedSeconds", ((endedAt - startedAt).coerceAtLeast(0L)) / 1000L)
+            .put("elapsedSeconds", elapsedSeconds)
+            .put("stoppedSeconds", (elapsedSeconds - movingSeconds).coerceAtLeast(0L))
             .put("distance", distanceMetres)
             .put("movingSeconds", movingSeconds)
+            .put("averageSpeed", if (movingSeconds > 0L) distanceMetres / movingSeconds * 3.6f else 0f)
             .put("maxSpeed", prefs.getFloat(KEY_MAX_SPEED, 0f))
             .put("elevationGain", elevationGainMetres)
+            .put("minimumAltitude", if (minimumAltitude.isFinite()) minimumAltitude else 0.0)
+            .put("maximumAltitude", if (maximumAltitude.isFinite()) maximumAltitude else 0.0)
+            .put("maximumGrade", maximumGradePercent)
+            .put("gpsFixCount", gpsFixCount)
+            .put("averageGpsAccuracy", if (gpsFixCount > 0) gpsAccuracyTotal / gpsFixCount else -1.0)
+            .put("satellitesVisible", satellitesVisible)
+            .put("satellitesUsed", satellitesUsed)
+            .put("batteryPercent", batteryPercent)
+            .put("startCoordinates", prefs.getString(KEY_START_COORDINATES, "") ?: "")
+            .put("endCoordinates", prefs.getString(KEY_COORDINATES, "") ?: "")
+            .put("splits", completedSplits)
             .put("route", compactRoute)
             .put("speedHistory", JSONArray(prefs.getString(KEY_SPEED_HISTORY, "[]") ?: "[]"))
         history.put(ride)
@@ -387,21 +477,25 @@ class CyclingTrackerService : Service(), LocationListener {
         prefs.edit().putString(KEY_RIDE_HISTORY, bounded.toString()).apply()
     }
 
-    private fun stopTracking() {
+    private fun finishRide(reason: String) {
+        if (!prefs.getBoolean(KEY_TRACKING, false)) return
         saveCompletedRide()
         runCatching { locationManager.removeUpdates(this) }
         if (Build.VERSION.SDK_INT >= 24) runCatching { locationManager.unregisterGnssStatusCallback(gnssCallback) }
         locationUpdatesRunning = false
         prefs.edit()
             .putBoolean(KEY_TRACKING, false)
-            .putBoolean(KEY_ARMED, false)
+            .putBoolean(KEY_ARMED, true)
             .putBoolean(KEY_IS_MOVING, false)
+            .putBoolean(WatchWorkoutNotificationListener.KEY_ACTIVE, false)
+            .putBoolean(WatchWorkoutNotificationListener.KEY_PENDING_START, false)
             .putLong(KEY_TRACKING_ENDED_AT, System.currentTimeMillis())
             .putFloat(KEY_SPEED, 0f)
+            .putString(KEY_LAST_END_REASON, reason)
             .apply()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) stopForeground(STOP_FOREGROUND_REMOVE)
-        else @Suppress("DEPRECATION") stopForeground(true)
-        stopSelf()
+        isMoving = false
+        updateNotification("Ride saved · Always armed for the next workout")
+        sendBroadcast(Intent(ACTION_STATS_UPDATED).setPackage(packageName))
     }
 
     private fun createChannel() {
@@ -439,6 +533,8 @@ class CyclingTrackerService : Service(), LocationListener {
         super.onDestroy()
     }
 
+    private data class AutoEndLocation(val name: String, val latitude: Double, val longitude: Double, val radiusMetres: Float)
+
     companion object {
         const val ACTION_ARM = "com.kxko.dailybriefing.CYCLING_ARM"
         const val ACTION_START = "com.kxko.dailybriefing.CYCLING_START"
@@ -469,6 +565,10 @@ class CyclingTrackerService : Service(), LocationListener {
         const val KEY_SPLITS = "cycling_splits"
         const val KEY_SPEED_HISTORY = "cycling_speed_history"
         const val KEY_RIDE_HISTORY = "cycling_ride_history"
+        const val KEY_LAST_END_REASON = "cycling_last_end_reason"
+        private val AUTO_END_LOCATIONS = listOf(
+            AutoEndLocation("IGS Busecker Tal", 50.60275, 8.77400, 120f)
+        )
         private const val CHANNEL_ID = "cycling_tracking"
         private const val NOTIFICATION_ID = 648
     }

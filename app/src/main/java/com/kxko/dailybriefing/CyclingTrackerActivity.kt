@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import com.kxko.dailybriefing.ui.theme.Kx
 import com.kxko.dailybriefing.ui.theme.KxButton
 import com.kxko.dailybriefing.ui.theme.KxChip
@@ -46,6 +47,7 @@ import org.osmdroid.views.overlay.Polyline
 import java.util.Locale
 import java.text.SimpleDateFormat
 import java.util.Date
+import java.io.File
 
 private data class RidePoint(val latitude: Double, val longitude: Double)
 private data class RideSummary(
@@ -387,16 +389,23 @@ class CyclingTrackerActivity : ComponentActivity() {
                                         rideHistory.asReversed().forEach { ride ->
                                             Column(
                                                 Modifier.fillMaxWidth()
-                                                    .clickable {
-                                                        selectedRide = ride
-                                                        showHistory = false
-                                                    }
-                                                    .padding(vertical = 8.dp)
+                                                    .background(Kx.Surface, RoundedCornerShape(14.dp))
+                                                    .clickable { selectedRide = ride; showHistory = false }
+                                                    .padding(13.dp)
                                             ) {
-                                                Text(SimpleDateFormat("dd MMM yyyy · HH:mm", Locale.getDefault()).format(Date(ride.startedAt)), color = Kx.Brass, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                                Text(String.format(Locale.getDefault(), "%.2f km  ·  %s elapsed  ·  %s moving  ·  %.1f km/h max  ·  +%.0f m", ride.distanceMetres / 1000f, formatDuration(ride.elapsedSeconds), formatDuration(ride.movingSeconds), ride.maxSpeed, ride.elevationGain), color = Kx.Cream, fontSize = 12.sp)
-                                                Text("Tap to view route map and full telemetry", color = Kx.Muted, fontSize = 10.sp)
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Column(Modifier.weight(1f)) {
+                                                        Text(SimpleDateFormat("dd MMM yyyy · HH:mm", Locale.getDefault()).format(Date(ride.startedAt)), color = Kx.Brass, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                        Text(String.format(Locale.getDefault(), "%.2f km", ride.distanceMetres / 1000f), color = Kx.Cream, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                    KxChip(text = if (ride.route.size > 1) "ROUTE SAVED" else "NO ROUTE", background = if (ride.route.size > 1) Kx.Good.copy(alpha = 0.13f) else Kx.SurfaceHi, foreground = if (ride.route.size > 1) Kx.Good else Kx.Muted)
+                                                }
+                                                Spacer(Modifier.height(5.dp))
+                                                Text(String.format(Locale.getDefault(), "%s elapsed  ·  %s moving  ·  %.1f km/h max  ·  +%.0f m", formatDuration(ride.elapsedSeconds), formatDuration(ride.movingSeconds), ride.maxSpeed, ride.elevationGain), color = Kx.Muted, fontSize = 11.sp)
+                                                Spacer(Modifier.height(7.dp))
+                                                Text(if (ride.route.size > 1) "Tap to open the route on the map and view ride data  →" else "Tap to view ride statistics  →", color = Kx.BrassBright, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                                             }
+                                            Spacer(Modifier.height(8.dp))
                                         }
                                     }
                                 }
@@ -424,7 +433,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                                                     onResume()
                                                 }
                                             },
-                                            modifier = Modifier.fillMaxWidth().height(220.dp),
+                                            modifier = Modifier.fillMaxWidth().height(270.dp),
                                             update = { map ->
                                                 map.overlays.clear()
                                                 val points = ride.route.map { GeoPoint(it.latitude, it.longitude) }
@@ -487,11 +496,59 @@ class CyclingTrackerActivity : ComponentActivity() {
                                     }
                                 }
                             },
-                            confirmButton = { TextButton(onClick = { selectedRide = null }) { Text("Close") } }
+                            confirmButton = {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    TextButton(onClick = { shareRide(ride) }, enabled = ride.route.size > 1) { Text("Share GPX") }
+                                    Spacer(Modifier.weight(1f))
+                                    TextButton(onClick = { selectedRide = null }) { Text("Close") }
+                                }
+                            }
                         )
                     }
                 }
             }
+        }
+    }
+
+    /** Export the saved GPS track as GPX and open Android’s native share sheet. */
+    private fun shareRide(ride: RideSummary) {
+        if (ride.route.size < 2) return
+        runCatching {
+            val stamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date(ride.startedAt))
+            val safeName = "Kxko_Ride_" + stamp
+            val gpx = buildString {
+                append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+                append("<gpx version=\"1.1\" creator=\"Kxko Cycling\" xmlns=\"http://www.topografix.com/GPX/1/1\">")
+                append("<metadata><name>" + safeName + "</name></metadata><trk><name>" + safeName + "</name><trkseg>")
+                ride.route.forEach { point ->
+                    append(String.format(Locale.US, "<trkpt lat=\"%.7f\" lon=\"%.7f\"></trkpt>", point.latitude, point.longitude))
+                }
+                append("</trkseg></trk></gpx>")
+            }
+            val directory = File(cacheDir, "shared").apply { mkdirs() }
+            val file = File(directory, safeName + ".gpx")
+            file.writeText(gpx, Charsets.UTF_8)
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            val summary = buildString {
+                append("My cycling ride · ").append(String.format(Locale.getDefault(), "%.2f km", ride.distanceMetres / 1000f))
+                append("\nTime: ").append(formatDuration(ride.elapsedSeconds))
+                append("\nMoving: ").append(formatDuration(ride.movingSeconds))
+                append(String.format(Locale.getDefault(), "\nAverage speed: %.1f km/h", ride.averageSpeed))
+                append(String.format(Locale.getDefault(), "\nMaximum speed: %.1f km/h", ride.maxSpeed))
+                append(String.format(Locale.getDefault(), "\nElevation gain: +%.0f m", ride.elevationGain))
+                append("\nRecorded with Kxko Cycling. GPX route attached.")
+            }
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "application/gpx+xml"
+                putExtra(Intent.EXTRA_SUBJECT, "Cycling ride · " + String.format(Locale.getDefault(), "%.2f km", ride.distanceMetres / 1000f))
+                putExtra(Intent.EXTRA_TEXT, summary)
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = android.content.ClipData.newUri(contentResolver, "Cycling route GPX", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(send, "Share cycling ride"))
+        }.onFailure {
+            android.widget.Toast.makeText(this, "Couldn’t export this ride. Please try again.", android.widget.Toast.LENGTH_LONG).show()
         }
     }
 

@@ -82,6 +82,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                 val hasAccess = remember(refresh) { WatchWorkoutNotificationListener.hasAccess(this) }
                 val active = remember(refresh) { prefs.getBoolean(WatchWorkoutNotificationListener.KEY_ACTIVE, false) }
                 val tracking = remember(refresh) { prefs.getBoolean(CyclingTrackerService.KEY_TRACKING, false) }
+                val isMoving = remember(refresh) { prefs.getBoolean(CyclingTrackerService.KEY_IS_MOVING, false) }
                 val armed = remember(refresh) { prefs.getBoolean(CyclingTrackerService.KEY_ARMED, false) }
                 val distance = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_DISTANCE, 0f) }
                 val speed = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_SPEED, 0f) }
@@ -213,8 +214,8 @@ class CyclingTrackerActivity : ComponentActivity() {
                                 )
                                 Text(
                                     when {
-                                        tracking && speed > 0.5f -> "Movement confirmed · route recording"
-                                        tracking -> "GPS is filtering small location shifts"
+                                        tracking && isMoving -> "MOVING · route recording"
+                                        tracking -> "STOPPED · waiting for movement"
                                         armed -> "Waiting for your Redmi Watch"
                                         else -> "Track every kilometre."
                                     },

@@ -344,14 +344,6 @@ class CyclingTrackerActivity : ComponentActivity() {
                                 modifier = Modifier.fillMaxWidth()
                             )
                         } else {
-                            if (!hasAccess) {
-                                KxButton(
-                                    text = "Enable Mi Fitness notification access",
-                                    onClick = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Spacer(Modifier.height(8.dp))
-                            }
                             if (!hasLocation) {
                                 KxButton(
                                     text = "Grant location permission",
@@ -585,6 +577,7 @@ class CyclingTrackerActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         cyclingMap?.onResume()
+        if (hasLocationPermission() && WatchWorkoutNotificationListener.hasAccess(this)) armAutomaticTracking()
         refresh++
     }
 

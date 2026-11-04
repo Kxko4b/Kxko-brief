@@ -133,7 +133,8 @@ class CyclingTrackerActivity : ComponentActivity() {
                 val satellitesUsed = remember(refresh) { prefs.getInt(CyclingTrackerService.KEY_SATELLITES_USED, 0) }
                 val splits = remember(refresh) { readSplits(prefs.getString(CyclingTrackerService.KEY_SPLITS, "[]")) }
                 val speedSamples = remember(refresh) { readSpeedSamples(prefs.getString(CyclingTrackerService.KEY_SPEED_HISTORY, "[]")) }
-                val rideHistory = remember(refresh) { readRideHistory(prefs.getString(CyclingTrackerService.KEY_RIDE_HISTORY, "[]")) }
+                val rideHistoryRaw = prefs.getString(CyclingTrackerService.KEY_RIDE_HISTORY, "[]") ?: "[]"
+                val rideHistory = remember(rideHistoryRaw) { readRideHistory(rideHistoryRaw) }
                 val trackingStartedAt = remember(refresh) { prefs.getLong(CyclingTrackerService.KEY_TRACKING_STARTED_AT, 0L) }
                 val trackingEndedAt = remember(refresh) { prefs.getLong(CyclingTrackerService.KEY_TRACKING_ENDED_AT, 0L) }
                 val route = remember(refresh) { readRoute(prefs.getString(CyclingTrackerService.KEY_ROUTE_POINTS, "[]")) }

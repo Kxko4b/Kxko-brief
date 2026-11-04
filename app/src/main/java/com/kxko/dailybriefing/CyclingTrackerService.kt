@@ -42,6 +42,7 @@ class CyclingTrackerService : Service(), LocationListener {
     private var pendingMovementSeconds = 0L
     private var pendingMovementMaxSpeed = 0f
     private var lastRouteLocation: Location? = null
+    private var lastSpeedSampleAt = 0L
     private var distanceMetres = 0f
     private var movingSeconds = 0L
     private var elevationGainMetres = 0f
@@ -178,6 +179,7 @@ class CyclingTrackerService : Service(), LocationListener {
         pendingMovementSeconds = 0L
         pendingMovementMaxSpeed = 0f
         lastRouteLocation = null
+        lastSpeedSampleAt = 0L
         gpsFixCount = 0
         gpsAccuracyTotal = 0.0
         minimumAltitude = Double.POSITIVE_INFINITY
@@ -229,7 +231,7 @@ class CyclingTrackerService : Service(), LocationListener {
             .getOrDefault(JSONArray())
         val previous = lastRouteLocation
         if (previous != null && previous.distanceTo(location) < 4f) return
-        route.put(JSONArray().put(location.latitude).put(location.longitude))
+        route.put(JSONArray().put(location.latitude).put(location.longitude).put(location.time).put(if (location.hasAltitude()) location.altitude else JSONObject.NULL).put(if (location.hasSpeed()) location.speed * 3.6f else 0f).put(location.accuracy).put(if (location.hasBearing()) location.bearing else 0f).put(if (Build.VERSION.SDK_INT >= 26 && location.hasVerticalAccuracy()) location.verticalAccuracyMeters else -1f))
         lastRouteLocation = location
         val bounded = if (route.length() > 2500) {
             JSONArray().also { trimmed ->
@@ -324,14 +326,6 @@ class CyclingTrackerService : Service(), LocationListener {
                     }
                     lastAltitude = altitude
                 }
-                val startedAt = prefs.getLong(KEY_TRACKING_STARTED_AT, now)
-                val speedHistory = runCatching { JSONArray(prefs.getString(KEY_SPEED_HISTORY, "[]") ?: "[]") }
-                    .getOrDefault(JSONArray())
-                speedHistory.put(JSONArray().put(((now - startedAt).coerceAtLeast(0L)) / 1000L).put(speedKmh))
-                val trimmedSpeedHistory = if (speedHistory.length() > 120) JSONArray().also { trimmed ->
-                    for (index in speedHistory.length() - 120 until speedHistory.length()) trimmed.put(speedHistory.getJSONArray(index))
-                } else speedHistory
-                prefs.edit().putString(KEY_SPEED_HISTORY, trimmedSpeedHistory.toString()).apply()
                 if (isMoving && location.accuracy <= 20f) appendRoutePoint(location)
                 if (isMoving) lastLocation = location
             } else if (segment >= movementThreshold || elapsedSeconds > 30f) {
@@ -359,6 +353,15 @@ class CyclingTrackerService : Service(), LocationListener {
             speedKmh = 0f
         }
         if (!isMoving || lastAcceptedMovementAt == 0L || now - lastAcceptedMovementAt > 10000L) speedKmh = 0f
+        // Five-second samples preserve a full-ride speed, altitude, accuracy and heading timeline.
+        if (now - lastSpeedSampleAt >= 5000L || lastSpeedSampleAt == 0L) {
+            val startedAt = prefs.getLong(KEY_TRACKING_STARTED_AT, now)
+            val samples = runCatching { JSONArray(prefs.getString(KEY_SPEED_HISTORY, "[]") ?: "[]") }.getOrDefault(JSONArray())
+            samples.put(JSONArray().put(((now - startedAt).coerceAtLeast(0L)) / 1000L).put(speedKmh).put(if (location.hasAltitude()) location.altitude else JSONObject.NULL).put(location.accuracy).put(if (location.hasBearing()) location.bearing else 0f))
+            val bounded = if (samples.length() > 2000) JSONArray().also { trimmed -> for (index in samples.length() - 2000 until samples.length()) trimmed.put(samples.getJSONArray(index)) } else samples
+            prefs.edit().putString(KEY_SPEED_HISTORY, bounded.toString()).apply()
+            lastSpeedSampleAt = now
+        }
         prefs.edit().putBoolean(KEY_IS_MOVING, isMoving).apply()
         val maxSpeed = maxOf(prefs.getFloat(KEY_MAX_SPEED, 0f), speedKmh)
         currentLatitude = location.latitude

@@ -481,6 +481,16 @@ class CyclingTrackerActivity : ComponentActivity() {
                                     Text(String.format(Locale.getDefault(), "Average: %.1f km/h · Maximum: %.1f km/h", ride.averageSpeed, ride.maxSpeed), color = Kx.Cream, fontSize = 12.sp)
                                     Text(String.format(Locale.getDefault(), "Climb: +%.0f m · Altitude range: %.0f–%.0f m", ride.elevationGain, ride.minimumAltitude, ride.maximumAltitude), color = Kx.Cream, fontSize = 12.sp)
                                     Text(String.format(Locale.getDefault(), "Maximum estimated grade: %.1f%%", ride.maximumGrade), color = Kx.Cream, fontSize = 12.sp)
+                                    Text("DATA RECORDED", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                                    Text("Route samples: ${ride.route.size} · Speed timeline: ${ride.speedHistory.size} samples", color = Kx.Muted, fontSize = 11.sp)
+                                    val routeAltitudes = ride.route.map { it.altitude }.filter { it.isFinite() && it > 0f }
+                                    if (routeAltitudes.size > 1) {
+                                        Text(String.format(Locale.getDefault(), "Recorded route altitude: %.0f–%.0f m", routeAltitudes.minOrNull() ?: 0f, routeAltitudes.maxOrNull() ?: 0f), color = Kx.Cream, fontSize = 12.sp)
+                                    }
+                                    val routeSpeeds = ride.route.map { it.speedKmh }.filter { it.isFinite() && it > 0f }
+                                    if (routeSpeeds.isNotEmpty()) {
+                                        Text(String.format(Locale.getDefault(), "Route-point speed: %.1f km/h average · %.1f km/h peak", routeSpeeds.average(), routeSpeeds.maxOrNull() ?: 0f), color = Kx.Cream, fontSize = 12.sp)
+                                    }
                                     if (ride.endReason.isNotBlank()) Text("Session ended: " + ride.endReason, color = Kx.Muted, fontSize = 11.sp)
                                     Spacer(Modifier.height(10.dp))
                                     Text("SPEED OVER TIME", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)

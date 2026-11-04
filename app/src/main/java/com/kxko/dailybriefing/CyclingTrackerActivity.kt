@@ -49,7 +49,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.io.File
 
-private data class RidePoint(val latitude: Double, val longitude: Double)
+private data class RidePoint(val latitude: Double, val longitude: Double, val timestamp: Long = 0L, val altitude: Float = Float.NaN, val speedKmh: Float = 0f, val accuracy: Float = -1f, val bearing: Float = 0f, val verticalAccuracy: Float = -1f)
 private data class RideSummary(
     val startedAt: Long,
     val distanceMetres: Float,
@@ -429,15 +429,16 @@ class CyclingTrackerActivity : ComponentActivity() {
                                                 MapView(this@CyclingTrackerActivity).apply {
                                                     setTileSource(TileSourceFactory.MAPNIK)
                                                     setMultiTouchControls(true)
-                                                    setBuiltInZoomControls(true)
+                                                    setBuiltInZoomControls(false)
                                                     onResume()
                                                 }
                                             },
                                             modifier = Modifier.fillMaxWidth().height(270.dp),
                                             update = { map ->
+                                                runCatching {
                                                 map.overlays.clear()
                                                 val points = ride.route.map { GeoPoint(it.latitude, it.longitude) }
-                                                map.overlays.add(Polyline(map).apply {
+                                                if (points.size > 1) map.overlays.add(Polyline(map).apply {
                                                     setPoints(points)
                                                     outlinePaint.color = android.graphics.Color.rgb(191, 145, 82)
                                                     outlinePaint.strokeWidth = 10f
@@ -457,13 +458,17 @@ class CyclingTrackerActivity : ComponentActivity() {
                                                         title = "Finish"
                                                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                                                     })
+                                                }
+                                                if (points.size > 1) {
                                                     val north = points.maxOf { it.latitude }
                                                     val south = points.minOf { it.latitude }
                                                     val east = points.maxOf { it.longitude }
                                                     val west = points.minOf { it.longitude }
-                                                    map.zoomToBoundingBox(org.osmdroid.util.BoundingBox(north, east, south, west), false, 48)
+                                                    if (north - south > 0.00001 || east - west > 0.00001) map.zoomToBoundingBox(org.osmdroid.util.BoundingBox(north, east, south, west), false, 48)
+                                                    else { map.controller.setZoom(16.0); map.controller.setCenter(points.first()) }
                                                 }
                                                 map.invalidate()
+                                                }.onFailure { android.util.Log.w("KxkoCycling", "Could not render saved ride map", it) }
                                             }
                                         )
                                     } else {
@@ -621,7 +626,7 @@ class CyclingTrackerActivity : ComponentActivity() {
             (0 until array.length()).mapNotNull { index ->
                 val point = array.optJSONArray(index) ?: return@mapNotNull null
                 if (point.length() < 2) return@mapNotNull null
-                RidePoint(point.getDouble(0), point.getDouble(1))
+                RidePoint(point.optDouble(0, Double.NaN), point.optDouble(1, Double.NaN), point.optLong(2, 0L), point.optDouble(3, Double.NaN).toFloat(), point.optDouble(4, 0.0).toFloat(), point.optDouble(5, -1.0).toFloat(), point.optDouble(6, 0.0).toFloat(), point.optDouble(7, -1.0).toFloat()).takeIf { it.latitude.isFinite() && it.longitude.isFinite() && kotlin.math.abs(it.latitude) <= 90 && kotlin.math.abs(it.longitude) <= 180 } ?: return@mapNotNull null
             }
         }.getOrDefault(emptyList())
     }

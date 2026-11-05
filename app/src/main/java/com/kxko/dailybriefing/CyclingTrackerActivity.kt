@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.kxko.dailybriefing.ui.theme.Kx
@@ -86,6 +87,7 @@ private data class KmSplit(val kilometre: Int, val movingSeconds: Long, val maxS
 class CyclingTrackerActivity : ComponentActivity() {
     private var refresh by mutableIntStateOf(0)
     private var cyclingMap: MapView? = null
+    private var historyMap: MapView? = null
     private val receiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) { refresh++ }
     }
@@ -432,6 +434,13 @@ class CyclingTrackerActivity : ComponentActivity() {
                         )
                     }
                     selectedRide?.let { ride ->
+                        DisposableEffect(ride.startedAt) {
+                            onDispose {
+                                historyMap?.onPause()
+                                historyMap?.onDetach()
+                                historyMap = null
+                            }
+                        }
                         AlertDialog(
                             onDismissRequest = { selectedRide = null },
                             title = {
@@ -446,6 +455,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                                             modifier = Modifier.fillMaxWidth().height(230.dp),
                                             factory = { context ->
                                                 MapView(context).apply {
+                                                    historyMap = this
                                                     setTileSource(TileSourceFactory.MAPNIK)
                                                     setMultiTouchControls(true)
                                                     setBuiltInZoomControls(false)
@@ -483,6 +493,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                                             },
                                             update = { map -> map.invalidate() }
                                         )
+                                        Text("Map data © OpenStreetMap contributors", color = Kx.Dim, fontSize = 9.sp, modifier = Modifier.padding(top = 4.dp))
                                     } else {
                                         Text("No route points were saved for this ride.", color = Kx.Muted, fontSize = 11.sp)
                                     }

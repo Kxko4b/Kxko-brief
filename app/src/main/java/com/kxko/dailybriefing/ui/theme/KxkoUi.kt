@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** Shared Kxko design system: calm charcoal surfaces, warm brass and clear status colours. */
+/** Shared Kxko design system: restrained graphite surfaces and burnt-orange accents. */
 object Kx {
     // Neutral graphite surfaces with restrained burnt-orange accents.
     val Bg = Color(0xFF151617)
@@ -80,40 +80,39 @@ fun KxCard(
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(16.dp)
     var m = modifier.fillMaxWidth()
-        .shadow(if (accent) 5.dp else 2.dp, shape, clip = false)
         .clip(shape)
-        .background(if (accent) Brush.linearGradient(listOf(Kx.SurfaceHi, Kx.Surface)) else Brush.linearGradient(listOf(Kx.Surface, Kx.Surface.copy(alpha = 0.96f))))
-        .border(BorderStroke(1.dp, if (accent) Kx.Brass.copy(alpha = 0.48f) else Kx.Line.copy(alpha = 0.85f)), shape)
+        .background(if (accent) Kx.SurfaceHi else Kx.Surface)
+        .border(BorderStroke(1.dp, if (accent) Kx.Brass.copy(alpha = 0.38f) else Kx.Line.copy(alpha = 0.72f)), shape)
     if (onClick != null) m = m.clickable(role = Role.Button, onClick = onClick)
-    Column(modifier = m.padding(18.dp), content = content)
+    Column(modifier = m.padding(16.dp), content = content)
 }
 
 @Composable
 fun KxLabel(text: String, modifier: Modifier = Modifier, color: Color = Kx.Brass) {
-    Text(text.uppercase(), modifier = modifier, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.65.sp, lineHeight = 14.sp)
+    Text(text, modifier = modifier, color = color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.45.sp, lineHeight = 15.sp)
 }
 
 @Composable
 fun KxChip(text: String, background: Color, foreground: Color, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.clip(RoundedCornerShape(50)).background(background)
-        .border(1.dp, foreground.copy(alpha = 0.13f), RoundedCornerShape(50))
-        .padding(horizontal = 11.dp, vertical = 6.dp)) {
-        Text(text, color = foreground, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, lineHeight = 14.sp)
+    Box(modifier = modifier.clip(RoundedCornerShape(9.dp)).background(background)
+        .border(1.dp, foreground.copy(alpha = 0.12f), RoundedCornerShape(9.dp))
+        .padding(horizontal = 10.dp, vertical = 5.dp)) {
+        Text(text, color = foreground, fontSize = 10.sp, fontWeight = FontWeight.Medium, lineHeight = 13.sp)
     }
 }
 
 @Composable
 fun KxButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, primary: Boolean = true, enabled: Boolean = true) {
-    val shape = RoundedCornerShape(15.dp)
+    val shape = RoundedCornerShape(12.dp)
     val bg = when { !enabled -> Kx.SurfaceHi; primary -> Kx.Brass; else -> Kx.SurfaceHi }
     val fg = when { !enabled -> Kx.Dim; primary -> Kx.OnBrass; else -> Kx.Cream }
     Box(modifier = modifier.defaultMinSize(minHeight = 48.dp).clip(shape).background(bg)
         .then(if (!primary || !enabled) Modifier.border(BorderStroke(1.dp, Kx.Line), shape) else Modifier)
         .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-        .padding(horizontal = 18.dp, vertical = 13.dp), contentAlignment = Alignment.Center) {
-        Text(text, color = fg, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+        .padding(horizontal = 16.dp, vertical = 11.dp), contentAlignment = Alignment.Center) {
+        Text(text, color = fg, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
     }
 }
 
@@ -148,18 +147,18 @@ fun StackedBar(mastered: Int, shaky: Int, fresh: Int, modifier: Modifier = Modif
 @Composable
 fun KxBottomBar(selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
     val items = listOf("⌂" to "Dashboard", "▤" to "Study", "✓" to "Quiz", "↗" to "Cycling")
-    Column(modifier = modifier.fillMaxWidth().background(Kx.Surface)) {
+    Column(modifier = modifier.fillMaxWidth().background(Kx.Bg)) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(Kx.Line))
-        Row(Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             items.forEachIndexed { index, item ->
                 val active = index == selected
                 Column(modifier = Modifier.weight(1f).clip(RoundedCornerShape(15.dp))
-                    .clickable(role = Role.Tab) { onSelect(index) }.padding(vertical = 5.dp),
+                    .clickable(role = Role.Tab) { onSelect(index) }.padding(vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Box(Modifier.clip(RoundedCornerShape(11.dp)).background(if (active) Kx.BrassSoft else Color.Transparent).padding(horizontal = 15.dp, vertical = 3.dp)) {
-                        Text(item.first, color = if (active) Kx.BrassBright else Kx.Muted, fontSize = 19.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
+                    Box(Modifier.clip(RoundedCornerShape(9.dp)).background(if (active) Kx.BrassSoft else Color.Transparent).padding(horizontal = 14.dp, vertical = 2.dp)) {
+                        Text(item.first, color = Kx.IconGrey, fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium)
                     }
-                    Text(item.second, color = if (active) Kx.BrassBright else Kx.Dim, fontSize = 10.sp, lineHeight = 13.sp, fontWeight = if (active) FontWeight.Bold else FontWeight.Medium)
+                    Text(item.second, color = if (active) Kx.BrassBright else Kx.Muted, fontSize = 10.sp, lineHeight = 13.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
                 }
             }
         }

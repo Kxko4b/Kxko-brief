@@ -302,7 +302,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             SecondaryMetric("AVG MOVING", String.format(Locale.getDefault(), "%.1f km/h", averageSpeed), Modifier.weight(1f))
                             SecondaryMetric("MOVING TIME", formatDuration(movingSeconds), Modifier.weight(1f))
-                            SecondaryMetric("CLIMBED", String.format(Locale.getDefault(), "%.0f m", elevationGain), Modifier.weight(1f))
+                            if (showElevationStats.value) SecondaryMetric("CLIMBED", String.format(Locale.getDefault(), "%.0f m", elevationGain), Modifier.weight(1f))
                         }
                         Spacer(Modifier.height(12.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {

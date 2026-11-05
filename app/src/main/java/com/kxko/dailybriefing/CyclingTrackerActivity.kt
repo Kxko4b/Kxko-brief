@@ -727,21 +727,44 @@ private fun SecondaryMetric(label: String, value: String, modifier: Modifier = M
 
 @Composable
 private fun SpeedHistoryGraph(samples: List<Pair<Float, Float>>) {
-    if (samples.size < 2) {
-        Text("The graph will build as GPS confirms movement.", color = Kx.Muted, fontSize = 11.sp)
+    // Samples store elapsed seconds followed by speed in km/h.
+    val clean = remember(samples) {
+        val ordered = samples.filter { it.first.isFinite() && it.second.isFinite() && it.first >= 0f && it.second in 0f..75f }
+            .sortedBy { it.first }.distinctBy { it.first }
+        ordered.mapIndexed { index, point ->
+            val window = ordered.subList(maxOf(0, index - 1), minOf(ordered.size, index + 2)).map { it.second }.sorted()
+            point.first to window[window.size / 2]
+        }
+    }
+    if (clean.size < 2) {
+        Text("Not enough reliable speed readings for a chart yet.", color = Kx.Muted, fontSize = 11.sp)
         return
     }
-    Canvas(Modifier.fillMaxWidth().height(86.dp).background(Kx.SurfaceHi, RoundedCornerShape(12.dp)).padding(8.dp)) {
-        val maxSpeed = (samples.maxOfOrNull { it.second } ?: 1f).coerceAtLeast(5f)
-        val minTime = samples.first().first
-        val timeSpan = (samples.last().first - minTime).coerceAtLeast(1f)
-        val path = Path()
-        samples.forEachIndexed { index, sample ->
-            val x = (sample.first - minTime) / timeSpan * size.width
-            val y = size.height - (sample.second / maxSpeed).coerceIn(0f, 1f) * size.height
-            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+    val peak = clean.maxOf { it.second }
+    val chartMax = (kotlin.math.ceil((peak.coerceAtLeast(10f) / 5f).toDouble()) * 5.0).toFloat()
+    val average = clean.map { it.second }.average().toFloat()
+    Column(Modifier.fillMaxWidth().background(Kx.SurfaceHi, RoundedCornerShape(13.dp)).padding(12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column { Text("AVERAGE", color = Kx.Dim, fontSize = 9.sp); Text(String.format(Locale.getDefault(), "%.1f km/h", average), color = Kx.Cream, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+            Column(horizontalAlignment = Alignment.End) { Text("PEAK", color = Kx.Dim, fontSize = 9.sp); Text(String.format(Locale.getDefault(), "%.1f km/h", peak), color = Kx.BrassBright, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
         }
-        drawPath(path, color = Kx.Brass, style = Stroke(width = 3.dp.toPx()))
+        Spacer(Modifier.height(8.dp))
+        Canvas(Modifier.fillMaxWidth().height(112.dp)) {
+            val left = 2.dp.toPx(); val right = size.width - 2.dp.toPx(); val top = 5.dp.toPx(); val bottom = size.height - 5.dp.toPx()
+            val plotHeight = bottom - top; val minTime = clean.first().first; val timeSpan = (clean.last().first - minTime).coerceAtLeast(1f)
+            for (step in 0..4) { val y = top + plotHeight * step / 4f; drawLine(Kx.Line.copy(alpha = 0.65f), Offset(left, y), Offset(right, y), 1.dp.toPx()) }
+            val path = Path()
+            clean.forEachIndexed { index, point ->
+                val x = left + ((point.first - minTime) / timeSpan) * (right - left)
+                val y = bottom - (point.second / chartMax).coerceIn(0f, 1f) * plotHeight
+                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            drawPath(path, color = Kx.BrassBright, style = Stroke(width = 2.5.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(formatDuration(clean.first().first.toLong()), color = Kx.Dim, fontSize = 9.sp)
+            Text(formatDuration(clean.last().first.toLong()), color = Kx.Dim, fontSize = 9.sp)
+        }
     }
 }
 

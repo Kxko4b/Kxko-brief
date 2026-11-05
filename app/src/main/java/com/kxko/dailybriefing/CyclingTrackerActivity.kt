@@ -30,9 +30,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.kxko.dailybriefing.ui.theme.Kx
@@ -100,8 +99,8 @@ class CyclingTrackerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = android.graphics.Color.rgb(17, 19, 21)
-        window.navigationBarColor = android.graphics.Color.rgb(17, 19, 21)
+        window.statusBarColor = android.graphics.Color.rgb(21, 22, 23)
+        window.navigationBarColor = android.graphics.Color.rgb(32, 34, 36)
         Configuration.getInstance().userAgentValue = packageName
         val filter = android.content.IntentFilter().apply {
             addAction(WatchWorkoutNotificationListener.ACTION_WORKOUT_STARTED)
@@ -152,6 +151,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                 val hasLocation = hasLocationPermission()
                 var followLocation by remember { mutableStateOf(true) }
                 var showDetails by remember { mutableStateOf(false) }
+                var cardDragDistance by remember { mutableFloatStateOf(0f) }
                 var showHistory by remember { mutableStateOf(false) }
                 var selectedRide by remember { mutableStateOf<RideSummary?>(null) }
 
@@ -181,7 +181,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                             if (geoPoints.size > 1) {
                                 map.overlays.add(Polyline(map).apply {
                                     setPoints(geoPoints)
-                                    outlinePaint.color = android.graphics.Color.rgb(191, 145, 82)
+                                    outlinePaint.color = android.graphics.Color.rgb(184, 94, 46)
                                     outlinePaint.strokeWidth = 13f
                                     outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
                                     outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
@@ -241,18 +241,19 @@ class CyclingTrackerActivity : ComponentActivity() {
                     Column(
                         Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = 560.dp)
                             .verticalScroll(rememberScrollState())
-                            .animateContentSize()
                             .background(Kx.Surface.copy(alpha = 0.99f), RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
                             .padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 18.dp)
                     ) {
                         Box(
-                            Modifier.fillMaxWidth().height(28.dp).pointerInput(Unit) {
-                                var drag = 0f
-                                detectVerticalDragGestures(
-                                    onVerticalDrag = { change, amount -> change.consume(); drag += amount },
-                                    onDragEnd = { if (drag < -28f) showDetails = true else if (drag > 28f) showDetails = false; drag = 0f }
-                                )
-                            }.clickable { showDetails = !showDetails },
+                            Modifier.fillMaxWidth().height(28.dp).draggable(
+                                orientation = Orientation.Vertical,
+                                state = rememberDraggableState { delta -> cardDragDistance += delta },
+                                onDragStopped = { velocity ->
+                                    if (cardDragDistance < -36f || velocity < -550f) showDetails = true
+                                    else if (cardDragDistance > 36f || velocity > 550f) showDetails = false
+                                    cardDragDistance = 0f
+                                }
+                            ),
                             contentAlignment = Alignment.TopCenter
                         ) {
                             Box(Modifier.padding(top = 3.dp).size(width = 38.dp, height = 4.dp).background(Kx.IconGrey, RoundedCornerShape(50)))
@@ -441,7 +442,47 @@ class CyclingTrackerActivity : ComponentActivity() {
                                     if (ride.route.size > 1) {
                                         Text("ROUTE MAP", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
                                         Spacer(Modifier.height(6.dp))
-                                        RideRoutePreview(ride.route, Modifier.fillMaxWidth().height(220.dp))
+                                        AndroidView(
+                                            modifier = Modifier.fillMaxWidth().height(230.dp),
+                                            factory = { context ->
+                                                MapView(context).apply {
+                                                    setTileSource(TileSourceFactory.MAPNIK)
+                                                    setMultiTouchControls(true)
+                                                    setBuiltInZoomControls(false)
+                                                    setTilesScaledToDpi(true)
+                                                    val points = ride.route.filter { it.latitude.isFinite() && it.longitude.isFinite() }
+                                                        .map { GeoPoint(it.latitude, it.longitude) }
+                                                    if (points.size > 1) {
+                                                        overlays.add(Polyline(this).apply {
+                                                            setPoints(points)
+                                                            outlinePaint.color = android.graphics.Color.rgb(184, 94, 46)
+                                                            outlinePaint.strokeWidth = 8f
+                                                            outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                                                            outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
+                                                        })
+                                                        overlays.add(Marker(this).apply {
+                                                            position = points.first()
+                                                            title = "Start"
+                                                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                                        })
+                                                        overlays.add(Marker(this).apply {
+                                                            position = points.last()
+                                                            title = "Finish"
+                                                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                                        })
+                                                        val minLat = points.minOf { it.latitude }
+                                                        val maxLat = points.maxOf { it.latitude }
+                                                        val minLon = points.minOf { it.longitude }
+                                                        val maxLon = points.maxOf { it.longitude }
+                                                        controller.setCenter(GeoPoint((minLat + maxLat) / 2.0, (minLon + maxLon) / 2.0))
+                                                        controller.setZoom(15.0)
+                                                        controller.zoomToSpan((maxLat - minLat).coerceAtLeast(0.001), (maxLon - minLon).coerceAtLeast(0.001))
+                                                    }
+                                                    onResume()
+                                                }
+                                            },
+                                            update = { map -> map.invalidate() }
+                                        )
                                     } else {
                                         Text("No route points were saved for this ride.", color = Kx.Muted, fontSize = 11.sp)
                                     }
@@ -697,40 +738,3 @@ private fun compassDirection(degrees: Float): String {
 private fun formatDuration(seconds: Long): String =
     String.format(Locale.getDefault(), "%02d:%02d:%02d", seconds / 3600, (seconds % 3600) / 60, seconds % 60)
 
-
-@Composable
-private fun RideRoutePreview(route: List<RidePoint>, modifier: Modifier = Modifier) {
-    val valid = route.filter { it.latitude.isFinite() && it.longitude.isFinite() }
-    Box(modifier.background(Kx.MapSurface, RoundedCornerShape(16.dp))) {
-        Canvas(Modifier.fillMaxSize().padding(14.dp)) {
-            val gridStep = 34.dp.toPx()
-            var x = 0f
-            while (x < size.width) { drawLine(Kx.MapGrid, androidx.compose.ui.geometry.Offset(x, 0f), androidx.compose.ui.geometry.Offset(x, size.height), 1.dp.toPx()); x += gridStep }
-            var y = 0f
-            while (y < size.height) { drawLine(Kx.MapGrid, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 1.dp.toPx()); y += gridStep }
-            if (valid.size < 2) return@Canvas
-            val minLat = valid.minOf { it.latitude }
-            val maxLat = valid.maxOf { it.latitude }
-            val minLon = valid.minOf { it.longitude }
-            val maxLon = valid.maxOf { it.longitude }
-            val latRange = (maxLat - minLat).coerceAtLeast(0.00001)
-            val lonRange = (maxLon - minLon).coerceAtLeast(0.00001)
-            val pad = 12.dp.toPx()
-            val points = valid.map {
-                androidx.compose.ui.geometry.Offset(
-                    pad + ((it.longitude - minLon) / lonRange).toFloat() * (size.width - 2 * pad),
-                    size.height - pad - ((it.latitude - minLat) / latRange).toFloat() * (size.height - 2 * pad)
-                )
-            }
-            val path = Path().apply { moveTo(points.first().x, points.first().y); points.drop(1).forEach { lineTo(it.x, it.y) } }
-            drawPath(path, Kx.RouteOrange, style = Stroke(width = 5.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
-            drawCircle(Kx.IconGrey, 6.dp.toPx(), points.first())
-            drawCircle(Kx.RouteOrange, 6.dp.toPx(), points.last())
-        }
-        Row(Modifier.align(Alignment.BottomStart).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("START", color = Kx.IconGrey, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-            Text("FINISH", color = Kx.RouteOrange, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-        }
-        Text("ROUTE OVERVIEW · NO TILE DOWNLOAD", Modifier.align(Alignment.TopEnd).padding(10.dp), color = Kx.MapLabel, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
-    }
-}

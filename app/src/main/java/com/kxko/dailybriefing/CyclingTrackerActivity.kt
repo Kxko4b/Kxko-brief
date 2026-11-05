@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -132,8 +133,6 @@ class CyclingTrackerActivity : ComponentActivity() {
                 val grade = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_CURRENT_GRADE, 0f) }
                 val bearing = remember(refresh) { prefs.getFloat(CyclingTrackerService.KEY_BEARING, 0f) }
                 val coordinates = remember(refresh) { prefs.getString(CyclingTrackerService.KEY_COORDINATES, "") ?: "" }
-                val satellitesVisible = remember(refresh) { prefs.getInt(CyclingTrackerService.KEY_SATELLITES_VISIBLE, 0) }
-                val satellitesUsed = remember(refresh) { prefs.getInt(CyclingTrackerService.KEY_SATELLITES_USED, 0) }
                 val splits = remember(refresh) { readSplits(prefs.getString(CyclingTrackerService.KEY_SPLITS, "[]")) }
                 val speedSamples = remember(refresh) { readSpeedSamples(prefs.getString(CyclingTrackerService.KEY_SPEED_HISTORY, "[]")) }
                 val rideHistoryRaw = prefs.getString(CyclingTrackerService.KEY_RIDE_HISTORY, "[]") ?: "[]"
@@ -154,6 +153,11 @@ class CyclingTrackerActivity : ComponentActivity() {
                 var showDetails by remember { mutableStateOf(false) }
                 var showHistory by remember { mutableStateOf(false) }
                 var selectedRide by remember { mutableStateOf<RideSummary?>(null) }
+                var showDisplaySettings by remember { mutableStateOf(false) }
+                val showSpeedChart = remember { mutableStateOf(prefs.getBoolean("cycling_show_speed_chart", true)) }
+                val showElevationStats = remember { mutableStateOf(prefs.getBoolean("cycling_show_elevation", true)) }
+                val showKmSplits = remember { mutableStateOf(prefs.getBoolean("cycling_show_splits", true)) }
+                val showGpsDiagnostics = remember { mutableStateOf(prefs.getBoolean("cycling_show_gps_diagnostics", false)) }
 
                 LaunchedEffect(tracking) {
                     while (tracking) {
@@ -303,52 +307,38 @@ class CyclingTrackerActivity : ComponentActivity() {
                         Spacer(Modifier.height(12.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(if (showDetails) "SWIPE DOWN TO COLLAPSE" else "PULL UP FOR MORE DATA", color = Kx.Dim, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, modifier = Modifier.weight(1f))
-                            KxButton(text = "Ride history (${rideHistory.size})", onClick = { showHistory = true }, primary = false, modifier = Modifier.weight(1f))
+                            KxButton(text = "History", onClick = { showHistory = true }, primary = false, modifier = Modifier.weight(1f))
+                            KxButton(text = "Display", onClick = { showDisplaySettings = true }, primary = false, modifier = Modifier.weight(0.8f))
                         }
                         if (showDetails) {
                             Spacer(Modifier.height(14.dp))
-                            Text("SPEED OVER TIME", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
-                            Spacer(Modifier.height(7.dp))
-                            SpeedHistoryGraph(speedSamples)
-                            Spacer(Modifier.height(12.dp))
+                            if (showSpeedChart.value) {
+                                Text("SPEED OVER TIME", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                                Spacer(Modifier.height(7.dp))
+                                SpeedHistoryGraph(speedSamples)
+                                Spacer(Modifier.height(12.dp))
+                            }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 SecondaryMetric("TOP SPEED", String.format(Locale.getDefault(), "%.1f km/h", maxSpeed), Modifier.weight(1f))
-                                SecondaryMetric("ALTITUDE", if (altitude > 0f) String.format(Locale.getDefault(), "%.0f m", altitude) else "—", Modifier.weight(1f))
-                                SecondaryMetric("GPS ACCURACY", if (gpsAccuracy >= 0f) String.format(Locale.getDefault(), "±%.0f m", gpsAccuracy) else "—", Modifier.weight(1f))
+                                if (showElevationStats.value) SecondaryMetric("ALTITUDE", if (altitude > 0f) String.format(Locale.getDefault(), "%.0f m", altitude) else "—", Modifier.weight(1f))
+                                SecondaryMetric("STOPPED", formatDuration(stoppedSeconds), Modifier.weight(1f))
                             }
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                when { gpsAccuracy < 0f -> "Waiting for a GPS fix"; gpsAccuracy <= 10f -> "GPS signal: excellent"; gpsAccuracy <= 25f -> "GPS signal: good"; gpsAccuracy <= 50f -> "GPS signal: fair"; else -> "GPS signal: weak — distance may be less accurate" },
-                                color = Kx.Muted, fontSize = 11.sp
-                            )
-                            Spacer(Modifier.height(12.dp))
-                            Text("LIVE TELEMETRY", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
-                            Spacer(Modifier.height(7.dp))
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SecondaryMetric("CURRENT PACE", if (pace > 0f) String.format(Locale.getDefault(), "%.1f min/km", pace) else "—", Modifier.weight(1f))
-                                SecondaryMetric("STOPPED TIME", formatDuration(stoppedSeconds), Modifier.weight(1f))
-                                SecondaryMetric("ROAD GRADE", String.format(Locale.getDefault(), "%+.1f%%", grade), Modifier.weight(1f))
+                            if (showGpsDiagnostics.value) {
+                                Spacer(Modifier.height(10.dp))
+                                Text("GPS DIAGNOSTICS", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    SecondaryMetric("GPS ACCURACY", if (gpsAccuracy >= 0f) String.format(Locale.getDefault(), "±%.0f m", gpsAccuracy) else "—", Modifier.weight(1f))
+                                    SecondaryMetric("SPEED ACCURACY", if (speedAccuracy >= 0f) String.format(Locale.getDefault(), "±%.1f m/s", speedAccuracy) else "—", Modifier.weight(1f))
+                                    SecondaryMetric("ALTITUDE ACC.", if (verticalAccuracy >= 0f) String.format(Locale.getDefault(), "±%.0f m", verticalAccuracy) else "—", Modifier.weight(1f))
+                                }
                             }
-                            Spacer(Modifier.height(10.dp))
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SecondaryMetric("GPS SATELLITES", if (satellitesVisible > 0) "$satellitesUsed / $satellitesVisible used" else "—", Modifier.weight(1f))
-                                SecondaryMetric("SPEED ACCURACY", if (speedAccuracy >= 0f) String.format(Locale.getDefault(), "±%.1f m/s", speedAccuracy) else "—", Modifier.weight(1f))
-                                SecondaryMetric("ALTITUDE ACC.", if (verticalAccuracy >= 0f) String.format(Locale.getDefault(), "±%.0f m", verticalAccuracy) else "—", Modifier.weight(1f))
-                            }
-                            Spacer(Modifier.height(10.dp))
-                            SecondaryMetric("HEADING", compassDirection(bearing), Modifier.fillMaxWidth())
-                            if (coordinates.isNotBlank()) {
-                                Spacer(Modifier.height(4.dp))
-                                Text("GPS: $coordinates", color = Kx.Dim, fontSize = 10.sp)
-                            }
-                            Spacer(Modifier.height(14.dp))
-                            Text("KILOMETRE SPLITS", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
-                            if (splits.size <= 1) {
-                                Text("Split times appear after each completed kilometre.", color = Kx.Muted, fontSize = 11.sp)
-                            } else {
-                                splits.drop(1).asReversed().forEach { split ->
+                            if (showKmSplits.value) {
+                                Spacer(Modifier.height(14.dp))
+                                Text("KILOMETRE SPLITS", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                                if (splits.size <= 1) Text("Split times appear after each completed kilometre.", color = Kx.Muted, fontSize = 11.sp)
+                                else splits.drop(1).asReversed().forEach { split ->
                                     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("KM ${split.kilometre}", color = Kx.Cream, fontSize = 12.sp)
+                                        Text("KM " + split.kilometre, color = Kx.Cream, fontSize = 12.sp)
                                         Text(formatDuration(split.movingSeconds), color = Kx.Muted, fontSize = 12.sp)
                                         Text(String.format(Locale.getDefault(), "%.1f km/h max", split.maxSpeed), color = Kx.Muted, fontSize = 11.sp)
                                     }
@@ -400,6 +390,22 @@ class CyclingTrackerActivity : ComponentActivity() {
                             )
                             Text("© OpenStreetMap", color = Kx.Dim, fontSize = 10.sp)
                         }
+                    }
+                    if (showDisplaySettings) {
+                        AlertDialog(
+                            onDismissRequest = { showDisplaySettings = false },
+                            title = { Text("Choose your ride data") },
+                            text = {
+                                Column(Modifier.verticalScroll(rememberScrollState())) {
+                                    Text("Choose what appears in the expanded cycling panel and ride history.", color = Kx.Muted, fontSize = 12.sp)
+                                    DisplaySettingRow("Speed chart", "A timeline of your speed", showSpeedChart.value) { showSpeedChart.value = it; prefs.edit().putBoolean("cycling_show_speed_chart", it).apply() }
+                                    DisplaySettingRow("Elevation data", "Altitude and climbing information", showElevationStats.value) { showElevationStats.value = it; prefs.edit().putBoolean("cycling_show_elevation", it).apply() }
+                                    DisplaySettingRow("Kilometre splits", "Time and top speed per kilometre", showKmSplits.value) { showKmSplits.value = it; prefs.edit().putBoolean("cycling_show_splits", it).apply() }
+                                    DisplaySettingRow("GPS diagnostics", "Accuracy and technical GPS details", showGpsDiagnostics.value) { showGpsDiagnostics.value = it; prefs.edit().putBoolean("cycling_show_gps_diagnostics", it).apply() }
+                                }
+                            },
+                            confirmButton = { TextButton(onClick = { showDisplaySettings = false }) { Text("Done") } }
+                        )
                     }
                     if (showHistory) {
                         AlertDialog(

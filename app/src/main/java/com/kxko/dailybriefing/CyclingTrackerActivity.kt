@@ -30,9 +30,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.kxko.dailybriefing.ui.theme.Kx
@@ -153,7 +152,6 @@ class CyclingTrackerActivity : ComponentActivity() {
                 val hasLocation = hasLocationPermission()
                 var followLocation by remember { mutableStateOf(true) }
                 var showDetails by remember { mutableStateOf(false) }
-                var cardDragDistance by remember { mutableFloatStateOf(0f) }
                 var showHistory by remember { mutableStateOf(false) }
                 var selectedRide by remember { mutableStateOf<RideSummary?>(null) }
 
@@ -247,15 +245,21 @@ class CyclingTrackerActivity : ComponentActivity() {
                             .padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 18.dp)
                     ) {
                         Box(
-                            Modifier.fillMaxWidth().height(28.dp).draggable(
-                                orientation = Orientation.Vertical,
-                                state = rememberDraggableState { delta -> cardDragDistance += delta },
-                                onDragStopped = { velocity ->
-                                    if (cardDragDistance < -36f || velocity < -550f) showDetails = true
-                                    else if (cardDragDistance > 36f || velocity > 550f) showDetails = false
-                                    cardDragDistance = 0f
-                                }
-                            ),
+                            Modifier.fillMaxWidth().height(28.dp).pointerInput(showDetails) {
+                                var dragDistance = 0f
+                                detectVerticalDragGestures(
+                                    onVerticalDrag = { change, amount ->
+                                        change.consume()
+                                        dragDistance += amount
+                                    },
+                                    onDragEnd = {
+                                        if (!showDetails && dragDistance < -36f) showDetails = true
+                                        else if (showDetails && dragDistance > 36f) showDetails = false
+                                        dragDistance = 0f
+                                    },
+                                    onDragCancel = { dragDistance = 0f }
+                                )
+                            },
                             contentAlignment = Alignment.TopCenter
                         ) {
                             Box(Modifier.padding(top = 3.dp).size(width = 38.dp, height = 4.dp).background(Kx.IconGrey, RoundedCornerShape(50)))

@@ -512,35 +512,29 @@ class CyclingTrackerActivity : ComponentActivity() {
                                     Text(String.format(Locale.getDefault(), "Distance: %.2f km", ride.distanceMetres / 1000f), color = Kx.Cream, fontSize = 13.sp)
                                     Text("Elapsed: " + formatDuration(ride.elapsedSeconds) + " · Moving: " + formatDuration(ride.movingSeconds) + " · Stopped: " + formatDuration(ride.stoppedSeconds), color = Kx.Cream, fontSize = 12.sp)
                                     Text(String.format(Locale.getDefault(), "Average: %.1f km/h · Maximum: %.1f km/h", ride.averageSpeed, ride.maxSpeed), color = Kx.Cream, fontSize = 12.sp)
-                                    Text(String.format(Locale.getDefault(), "Climb: +%.0f m · Altitude range: %.0f–%.0f m", ride.elevationGain, ride.minimumAltitude, ride.maximumAltitude), color = Kx.Cream, fontSize = 12.sp)
-                                    Text(String.format(Locale.getDefault(), "Maximum estimated grade: %.1f%%", ride.maximumGrade), color = Kx.Cream, fontSize = 12.sp)
-                                    Text("DATA RECORDED", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
-                                    Text("Route samples: ${ride.route.size} · Speed timeline: ${ride.speedHistory.size} samples", color = Kx.Muted, fontSize = 11.sp)
-                                    val routeAltitudes = ride.route.map { it.altitude }.filter { it.isFinite() && it > 0f }
-                                    if (routeAltitudes.size > 1) {
-                                        Text(String.format(Locale.getDefault(), "Recorded route altitude: %.0f–%.0f m", routeAltitudes.minOrNull() ?: 0f, routeAltitudes.maxOrNull() ?: 0f), color = Kx.Cream, fontSize = 12.sp)
-                                    }
-                                    val routeSpeeds = ride.route.map { it.speedKmh }.filter { it.isFinite() && it > 0f }
-                                    if (routeSpeeds.isNotEmpty()) {
-                                        Text(String.format(Locale.getDefault(), "Route-point speed: %.1f km/h average · %.1f km/h peak", routeSpeeds.average(), routeSpeeds.maxOrNull() ?: 0f), color = Kx.Cream, fontSize = 12.sp)
+                                    if (showElevationStats.value) {
+                                        Text(String.format(Locale.getDefault(), "Climb: +%.0f m · Altitude range: %.0f–%.0f m", ride.elevationGain, ride.minimumAltitude, ride.maximumAltitude), color = Kx.Cream, fontSize = 12.sp)
                                     }
                                     if (ride.endReason.isNotBlank()) Text("Session ended: " + ride.endReason, color = Kx.Muted, fontSize = 11.sp)
-                                    Spacer(Modifier.height(10.dp))
-                                    Text("SPEED OVER TIME", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
-                                    SpeedHistoryGraph(ride.speedHistory)
-                                    Spacer(Modifier.height(10.dp))
-                                    Text("GPS & DEVICE TELEMETRY", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
-                                    Text("GPS fixes: " + ride.gpsFixCount + " · Average accuracy: " + (if (ride.averageGpsAccuracy >= 0f) String.format(Locale.getDefault(), "±%.1f m", ride.averageGpsAccuracy) else "—"), color = Kx.Muted, fontSize = 11.sp)
-                                    Text("Last fix: " + (if (ride.lastGpsAccuracy >= 0f) String.format(Locale.getDefault(), "±%.1f m", ride.lastGpsAccuracy) else "—") + " · Speed accuracy: " + (if (ride.lastSpeedAccuracy >= 0f) String.format(Locale.getDefault(), "±%.1f m/s", ride.lastSpeedAccuracy) else "—"), color = Kx.Muted, fontSize = 11.sp)
-                                    Text("Vertical accuracy: " + (if (ride.lastVerticalAccuracy >= 0f) String.format(Locale.getDefault(), "±%.1f m", ride.lastVerticalAccuracy) else "—") + " · Heading: " + compassDirection(ride.lastHeading), color = Kx.Muted, fontSize = 11.sp)
-                                    Text("Satellites: " + ride.satellitesUsed + "/" + ride.satellitesVisible + " used · Battery at finish: " + (if (ride.batteryPercent >= 0) ride.batteryPercent.toString() + "%" else "—"), color = Kx.Muted, fontSize = 11.sp)
-                                    if (ride.startCoordinates.isNotBlank()) Text("Start: " + ride.startCoordinates, color = Kx.Dim, fontSize = 10.sp)
-                                    if (ride.endCoordinates.isNotBlank()) Text("Finish: " + ride.endCoordinates, color = Kx.Dim, fontSize = 10.sp)
-                                    Spacer(Modifier.height(10.dp))
-                                    Text("KILOMETRE SPLITS", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
-                                    if (ride.splits.isEmpty()) Text("No kilometre splits recorded.", color = Kx.Muted, fontSize = 11.sp)
-                                    ride.splits.forEach { split ->
-                                        Text((if (split.partial) "PARTIAL " else "") + "KM " + split.kilometre + " · " + formatDuration(split.movingSeconds) + " · " + String.format(Locale.getDefault(), "%.1f km/h max", split.maxSpeed), color = Kx.Muted, fontSize = 11.sp)
+                                    if (showSpeedChart.value) {
+                                        Spacer(Modifier.height(10.dp))
+                                        Text("SPEED OVER TIME", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                                        SpeedHistoryGraph(ride.speedHistory)
+                                    }
+                                    if (showGpsDiagnostics.value) {
+                                        Spacer(Modifier.height(10.dp))
+                                        Text("GPS DIAGNOSTICS", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                                        Text("GPS fixes: " + ride.gpsFixCount + " · Average accuracy: " + (if (ride.averageGpsAccuracy >= 0f) String.format(Locale.getDefault(), "±%.1f m", ride.averageGpsAccuracy) else "—"), color = Kx.Muted, fontSize = 11.sp)
+                                        Text("Last fix: " + (if (ride.lastGpsAccuracy >= 0f) String.format(Locale.getDefault(), "±%.1f m", ride.lastGpsAccuracy) else "—") + " · Speed accuracy: " + (if (ride.lastSpeedAccuracy >= 0f) String.format(Locale.getDefault(), "±%.1f m/s", ride.lastSpeedAccuracy) else "—"), color = Kx.Muted, fontSize = 11.sp)
+                                        Text("Satellites used: " + ride.satellitesUsed + "/" + ride.satellitesVisible, color = Kx.Muted, fontSize = 11.sp)
+                                    }
+                                    if (showKmSplits.value) {
+                                        Spacer(Modifier.height(10.dp))
+                                        Text("KILOMETRE SPLITS", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                                        if (ride.splits.isEmpty()) Text("No kilometre splits recorded.", color = Kx.Muted, fontSize = 11.sp)
+                                        ride.splits.forEach { split ->
+                                            Text((if (split.partial) "PARTIAL " else "") + "KM " + split.kilometre + " · " + formatDuration(split.movingSeconds) + " · " + String.format(Locale.getDefault(), "%.1f km/h max", split.maxSpeed), color = Kx.Muted, fontSize = 11.sp)
+                                        }
                                     }
                                 }
                             },
@@ -771,6 +765,17 @@ private fun SpeedHistoryGraph(samples: List<Pair<Float, Float>>) {
             Text(formatDuration(clean.first().first.toLong()), color = Kx.Dim, fontSize = 9.sp)
             Text(formatDuration(clean.last().first.toLong()), color = Kx.Dim, fontSize = 9.sp)
         }
+    }
+}
+
+@Composable
+private fun DisplaySettingRow(title: String, description: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Kx.Cream, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(description, color = Kx.Muted, fontSize = 10.sp)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 

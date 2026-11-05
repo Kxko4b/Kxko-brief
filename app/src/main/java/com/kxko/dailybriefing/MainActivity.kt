@@ -431,7 +431,7 @@ private fun OfflineScreen(onRetry: () -> Unit) {
         Spacer(Modifier.height(24.dp))
         Button(
             onClick = onRetry,
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC5A16B), contentColor = Color(0xFFFFFFFF))
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB85E2E), contentColor = Color(0xFFFFFFFF))
         ) {
             Text("Try again")
         }

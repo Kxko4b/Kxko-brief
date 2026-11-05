@@ -398,13 +398,13 @@ class MainActivity : ComponentActivity() {
         private const val AUTO_REFRESH_MS = 60_000L
         private const val STALE_AFTER_MS = 30_000L
 
-        private val BG = Color(0xFF111315)
-        private val SURFACE = Color(0xFF1A1D20)
+        private val BG = Color(0xFF151617)
+        private val SURFACE = Color(0xFF202224)
         // A neutral grey gives Samsung's gesture/three-button navigation area a deliberate,
         // integrated finish instead of the transparent/black strip.
-        private val NAV_BAR = Color(0xFF292C2F)
-        private val BRASS = Color(0xFFC5A16B)
-        private val CREAM = Color(0xFFF0EEE9)
+        private val NAV_BAR = Color(0xFF202224)
+        private val BRASS = Color(0xFFB85E2E)
+        private val CREAM = Color(0xFFE7E9EA)
     }
 }
 
@@ -413,25 +413,25 @@ private fun OfflineScreen(onRetry: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF101416))
+            .background(Color(0xFF151617))
             .pointerInput(Unit) { }
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("K", color = Color(0xFFC5A16B), fontSize = 56.sp, fontWeight = FontWeight.Bold)
+        Text("K", color = Color(0xFFB85E2E), fontSize = 56.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
-        Text("Can't reach the dashboard", color = Color(0xFFEEE9DF), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        Text("Can't reach the dashboard", color = Color(0xFFE7E9EA), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(8.dp))
         Text(
             "Check your internet connection and try again.",
-            color = Color(0xFFAAA99E),
+            color = Color(0xFFB9BEC1),
             fontSize = 14.sp
         )
         Spacer(Modifier.height(24.dp))
         Button(
             onClick = onRetry,
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC5A16B), contentColor = Color(0xFF201C15))
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC5A16B), contentColor = Color(0xFFFFFFFF))
         ) {
             Text("Try again")
         }

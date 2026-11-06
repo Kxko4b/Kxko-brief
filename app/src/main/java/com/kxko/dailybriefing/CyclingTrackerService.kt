@@ -477,10 +477,9 @@ class CyclingTrackerService : Service(), LocationListener {
             .put("splits", completedSplits)
             .put("route", compactRoute)
             .put("speedHistory", JSONArray(prefs.getString(KEY_SPEED_HISTORY, "[]") ?: "[]"))
+        // Keep every completed ride. History is no longer truncated to a fixed number of sessions.
         history.put(ride)
-        val bounded = JSONArray()
-        for (index in maxOf(0, history.length() - 15) until history.length()) bounded.put(history.getJSONObject(index))
-        prefs.edit().putString(KEY_RIDE_HISTORY, bounded.toString()).apply()
+        prefs.edit().putString(KEY_RIDE_HISTORY, history.toString()).apply()
     }
 
     private fun finishRide(reason: String) {

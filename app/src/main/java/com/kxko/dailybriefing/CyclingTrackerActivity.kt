@@ -416,6 +416,25 @@ class CyclingTrackerActivity : ComponentActivity() {
                                     Text("Your completed rides will appear here. Finish a tracked ride to save its statistics.")
                                 } else {
                                     Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                                        val totalDistanceKm = rideHistory.sumOf { it.distanceMetres.toDouble() } / 1000.0
+                                        val totalMovingSeconds = rideHistory.sumOf { it.movingSeconds }
+                                        Column(Modifier.fillMaxWidth().background(Kx.SurfaceHi, RoundedCornerShape(14.dp)).padding(13.dp)) {
+                                            Text("ALL RIDES", color = Kx.Dim, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                                            Spacer(Modifier.height(5.dp))
+                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                Column {
+                                                    Text(rideHistory.size.toString(), color = Kx.Cream, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                                                    Text("rides saved", color = Kx.Muted, fontSize = 10.sp)
+                                                }
+                                                Column(horizontalAlignment = Alignment.End) {
+                                                    Text(String.format(Locale.getDefault(), "%.1f km", totalDistanceKm), color = Kx.Cream, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                                                    Text("total distance", color = Kx.Muted, fontSize = 10.sp)
+                                                }
+                                            }
+                                            Spacer(Modifier.height(5.dp))
+                                            Text("Total moving time: " + formatDuration(totalMovingSeconds), color = Kx.Muted, fontSize = 11.sp)
+                                        }
+                                        Spacer(Modifier.height(9.dp))
                                         rideHistory.asReversed().forEach { ride ->
                                             Column(
                                                 Modifier.fillMaxWidth()

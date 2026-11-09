@@ -138,7 +138,7 @@ class CyclingQuizActivity : ComponentActivity() {
         }
 
         setContent {
-            val card = currentQuestion?.let { QuizCardUi(it.subject, it.prompt, it.options, it.correctIndex) }
+            val card = currentQuestion?.let { QuizCardUi(it.subject, it.prompt, it.options, it.correctIndex, it.explanation) }
             val snap = statsSnapshot
             CyclingQuizScreen(
                 state = QuizScreenState(
@@ -273,22 +273,25 @@ class CyclingQuizActivity : ComponentActivity() {
         prefetchVoice(feedbackText(next, false), next.languageTag)
     }
 
-    private fun feedbackText(question: QuizQuestion, correct: Boolean): String = when (question.languageTag) {
+    private fun feedbackText(question: QuizQuestion, correct: Boolean): String {
+        val answer = question.options.getOrNull(question.correctIndex).orEmpty()
+        return when (question.languageTag) {
             "nl-NL" -> if (correct) {
-                "Goed gedaan. ${question.explanation}"
+                "Goed gedaan. Het juiste antwoord is: $answer. ${question.explanation}"
             } else {
-                "Niet helemaal. Het juiste antwoord is optie ${question.correctIndex + 1}: ${question.options[question.correctIndex]}. ${question.explanation} Ik stel deze vraag later opnieuw."
+                "Niet helemaal. Het juiste antwoord is: $answer. ${question.explanation} Ik stel deze vraag later opnieuw."
             }
             "en-GB" -> if (correct) {
-                "Correct. ${question.explanation}"
+                "Correct. The right answer is: $answer. ${question.explanation}"
             } else {
-                "Not quite. The correct answer is option ${question.correctIndex + 1}: ${question.options[question.correctIndex]}. ${question.explanation} I'll ask about this again later."
+                "Not quite. The correct answer is: $answer. ${question.explanation} I'll ask about this again later."
             }
             else -> if (correct) {
-                "Richtig. ${question.explanation}"
+                "Richtig. Die korrekte Antwort ist: $answer. ${question.explanation}"
             } else {
-                "Nicht ganz. Die richtige Antwort ist ${question.correctIndex + 1}: ${question.options[question.correctIndex]}. ${question.explanation} Ich frage später noch einmal danach."
+                "Nicht ganz. Die richtige Antwort ist: $answer. ${question.explanation} Ich frage später noch einmal danach."
             }
+        }
     }
 
     private fun submitAnswer(index: Int) {

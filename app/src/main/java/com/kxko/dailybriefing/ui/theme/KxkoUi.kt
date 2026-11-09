@@ -33,30 +33,30 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** Shared Kxko design system: restrained graphite surfaces and burnt-orange accents. */
+/** Shared Kxko design system: deep evergreen surfaces, warm brass accents and soft mineral neutrals. */
 object Kx {
-    // Neutral graphite surfaces with restrained burnt-orange accents.
-    val Bg = Color(0xFF151617)
-    val Surface = Color(0xFF202224)
-    val SurfaceHi = Color(0xFF2A2D30)
-    val SurfaceElevated = Color(0xFF34383B)
-    val Line = Color(0xFF41464A)
-    val Brass = Color(0xFFB85E2E)
-    val BrassBright = Color(0xFFD07843)
-    val BrassSoft = Color(0x26B85E2E)
-    val OnBrass = Color(0xFFFFFFFF)
-    val Cream = Color(0xFFE7E9EA)
-    val Muted = Color(0xFFB9BEC1)
-    val Dim = Color(0xFF858C90)
+    // Evergreen surfaces with a warm brass accent and calm neutral text.
+    val Bg = Color(0xFF171C19)
+    val Surface = Color(0xFF202823)
+    val SurfaceHi = Color(0xFF2B352E)
+    val SurfaceElevated = Color(0xFF354138)
+    val Line = Color(0xFF46544A)
+    val Brass = Color(0xFFB88B50)
+    val BrassBright = Color(0xFFD5AC70)
+    val BrassSoft = Color(0x26B88B50)
+    val OnBrass = Color(0xFF202820)
+    val Cream = Color(0xFFF0F1E9)
+    val Muted = Color(0xFFB4BDB4)
+    val Dim = Color(0xFF849087)
     val Good = Color(0xFFD0D4D6)
-    val Bad = Color(0xFFE18A78)
-    val Warn = Color(0xFFD6A06E)
-    val Ember = Color(0xFFC66B3B)
-    val IconGrey = Color(0xFFD7DBDD)
-    val RouteOrange = Color(0xFFB85E2E)
-    val MapSurface = Color(0xFF292D30)
-    val MapGrid = Color(0xFF3B4145)
-    val MapLabel = Color(0xFFB9BEC1)
+    val Bad = Color(0xFFE18B78)
+    val Warn = Color(0xFFD8B477)
+    val Ember = Color(0xFF9B7950)
+    val IconGrey = Color(0xFFDCE3D9)
+    val RouteOrange = Color(0xFFB88B50)
+    val MapSurface = Color(0xFF29332C)
+    val MapGrid = Color(0xFF414E44)
+    val MapLabel = Color(0xFFB4BDB4)
 
     // Shared layout tokens: adjust these to restyle every native screen consistently.
     val CardRadius = 18.dp

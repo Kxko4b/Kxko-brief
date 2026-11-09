@@ -203,7 +203,7 @@ class StudyQuizRepository(context: Context) {
                         options.filter { it != correct }.shuffled().take(2).forEach { picked.add(it) }
                         if (picked.size < 3) continue
                         picked.shuffle()
-                        output.add(StudyQuizItem(id, subject, prompt, picked, picked.indexOf(correct), p.optString("explain"), id))
+                        output.add(StudyQuizItem(id, subject, prompt, picked, picked.indexOf(correct), p.optString("explain").ifBlank { "Die richtige Antwort ist $correct. Vergleiche den Begriff mit den anderen Antwortmöglichkeiten." }, id))
                     }
                     "cover" -> {
                         val front = p.optString("front").trim()
@@ -212,7 +212,7 @@ class StudyQuizRepository(context: Context) {
                         val distractors = cards.map { it.second }.filter { it != back }.distinct().shuffled().take(2)
                         if (distractors.size < 2) continue
                         val options = (distractors + back).shuffled()
-                        output.add(StudyQuizItem(id, subject, front, options, options.indexOf(back), back, id))
+                        output.add(StudyQuizItem(id, subject, front, options, options.indexOf(back), p.optString("explain").ifBlank { "Die Karte fragt nach „$front“. Die gespeicherte Antwort lautet „$back“." }, id))
                     }
                     "match" -> {
                         val pairs = p.optJSONArray("pairs") ?: continue
@@ -227,7 +227,7 @@ class StudyQuizRepository(context: Context) {
                                 if (other.isNotEmpty() && other != match) distractors.add(other)
                             }
                             val options = (distractors.distinct().shuffled().take(2) + match).shuffled()
-                            if (options.size == 3) output.add(StudyQuizItem("$id-$k", subject, term, options, options.indexOf(match), "Richtig: $match", id))
+                            if (options.size == 3) output.add(StudyQuizItem("$id-$k", subject, term, options, options.indexOf(match), pair.optString("explain").ifBlank { "„$term“ gehört zu „$match“. Diese Zuordnung verbindet den Begriff mit seiner passenden Erklärung." }, id))
                         }
                     }
                 }

@@ -60,6 +60,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.ui.platform.LocalDensity
+import com.kxko.dailybriefing.ui.theme.Kx
 import com.kxko.dailybriefing.ui.theme.KxBottomBar
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -398,13 +399,13 @@ class MainActivity : ComponentActivity() {
         private const val AUTO_REFRESH_MS = 60_000L
         private const val STALE_AFTER_MS = 30_000L
 
-        private val BG = Color(0xFF151617)
-        private val SURFACE = Color(0xFF202224)
+        private val BG = Kx.Bg
+        private val SURFACE = Kx.Surface
         // A neutral grey gives Samsung's gesture/three-button navigation area a deliberate,
         // integrated finish instead of the transparent/black strip.
-        private val NAV_BAR = Color(0xFF202224)
-        private val BRASS = Color(0xFFB85E2E)
-        private val CREAM = Color(0xFFE7E9EA)
+        private val NAV_BAR = Kx.Surface
+        private val BRASS = Kx.Brass
+        private val CREAM = Kx.Cream
     }
 }
 
@@ -413,25 +414,25 @@ private fun OfflineScreen(onRetry: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF151617))
+            .background(Kx.Bg)
             .pointerInput(Unit) { }
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("K", color = Color(0xFFB85E2E), fontSize = 56.sp, fontWeight = FontWeight.Bold)
+        Text("K", color = Kx.Brass, fontSize = 56.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
-        Text("Can't reach the dashboard", color = Color(0xFFE7E9EA), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        Text("Can't reach the dashboard", color = Kx.Cream, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(8.dp))
         Text(
             "Check your internet connection and try again.",
-            color = Color(0xFFB9BEC1),
+            color = Kx.Muted,
             fontSize = 14.sp
         )
         Spacer(Modifier.height(24.dp))
         Button(
             onClick = onRetry,
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB85E2E), contentColor = Color(0xFFFFFFFF))
+            colors = ButtonDefaults.buttonColors(containerColor = Kx.Brass, contentColor = Kx.OnBrass)
         ) {
             Text("Try again")
         }

@@ -45,7 +45,8 @@ data class QuizCardUi(
     val subject: String,
     val prompt: String,
     val options: List<String>,
-    val correctIndex: Int
+    val correctIndex: Int,
+    val explanation: String
 )
 
 /** Everything the quiz screen needs, so the activity keeps the audio/quiz logic and this file only draws. */
@@ -89,21 +90,130 @@ class QuizScreenActions(
 fun CyclingQuizScreen(state: QuizScreenState, actions: QuizScreenActions) {
     KxkoTheme {
         Surface(modifier = Modifier.fillMaxSize().safeDrawingPadding(), color = Kx.Bg) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                TopRow(state, actions)
-                when {
-                    state.finished -> FinishedView(state, actions)
-                    state.started -> RunningView(state, actions)
-                    else -> SetupView(state, actions)
+            if (state.started) {
+                RunningQuizMode(state, actions)
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 18.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    TopRow(state, actions)
+                    if (state.finished) FinishedView(state, actions) else SetupView(state, actions)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RunningQuizMode(state: QuizScreenState, actions: QuizScreenActions) {
+    val accuracy = if (state.answerCount > 0) Math.round(100f * state.correctCount / state.answerCount) else 0
+    val card = state.card
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                "‹ Exit",
+                color = Kx.Brass,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { actions.onBack() }
+                    .padding(horizontal = 6.dp, vertical = 8.dp)
+            )
+            Spacer(Modifier.weight(1f))
+            KxChip("QUIZ MODE", Kx.BrassSoft, Kx.Brass)
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            StatTile("Answered", "${state.answerCount}", Modifier.weight(1f))
+            StatTile("Correct", "${state.correctCount}", Modifier.weight(1f))
+            StatTile("Accuracy", if (state.answerCount > 0) "$accuracy%" else "–", Modifier.weight(1f))
+        }
+
+        if (card != null) {
+            KxCard(accent = true) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    KxChip(card.subject, Kx.BrassSoft, Kx.Brass)
+                    Spacer(Modifier.weight(1f))
+                    Text("QUESTION ${state.answerCount + 1}", color = Kx.Dim, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(9.dp))
+                Text(
+                    card.prompt,
+                    color = Kx.Cream,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 25.sp
+                )
+            }
+
+            card.options.forEachIndexed { index, option ->
+                OptionTile(
+                    number = index + 1,
+                    text = option,
+                    enabled = state.acceptingAnswers,
+                    result = optionResult(index, card.correctIndex, state.pickedIndex),
+                    onClick = { actions.onAnswer(index) },
+                    compact = true
+                )
+            }
+
+            if (state.pickedIndex != null) {
+                KxCard(accent = true) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("✓", color = Kx.Good, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(8.dp))
+                        KxLabel("WHY THIS ANSWER IS RIGHT")
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Correct answer: ${card.options[card.correctIndex]}",
+                        color = Kx.Good,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        lineHeight = 19.sp
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        card.explanation.ifBlank { "This is the answer supported by the material for this topic." },
+                        color = Kx.Cream,
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp
+                    )
+                }
+            } else {
+                Text(
+                    state.statusText,
+                    color = Kx.Muted,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 17.sp,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        } else {
+            KxCard { Text("Preparing the next question …", color = Kx.Muted, fontSize = 15.sp) }
+        }
+
+        if (state.voiceError.isNotBlank()) {
+            KxCard {
+                Text(state.voiceError, color = Kx.Bad, fontSize = 12.sp, lineHeight = 17.sp)
+                KxButton("Retry AI voice", onClick = actions.onRetryVoice, modifier = Modifier.fillMaxWidth())
+            }
+        }
+
+        Spacer(Modifier.weight(1f, fill = false))
+        KxButton("End session", onClick = actions.onFinish, primary = false, modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -237,48 +347,6 @@ private fun KeyTile(number: String, label: String, modifier: Modifier = Modifier
     }
 }
 
-@Composable
-private fun RunningView(state: QuizScreenState, actions: QuizScreenActions) {
-    val accuracy = if (state.answerCount > 0) Math.round(100f * state.correctCount / state.answerCount) else 0
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        StatTile("Answered", "${state.answerCount}", Modifier.weight(1f))
-        StatTile("Correct", "${state.correctCount}", Modifier.weight(1f))
-        StatTile("Accuracy", if (state.answerCount > 0) "$accuracy%" else "–", Modifier.weight(1f))
-    }
-
-    val card = state.card
-    if (card != null) {
-        KxCard(accent = true) {
-            KxChip(card.subject, Kx.BrassSoft, Kx.Brass)
-            Spacer(Modifier.height(12.dp))
-            Text(card.prompt, color = Kx.Cream, fontSize = 20.sp, fontWeight = FontWeight.Medium, lineHeight = 28.sp)
-        }
-        card.options.forEachIndexed { index, option ->
-            OptionTile(
-                number = index + 1,
-                text = option,
-                enabled = state.acceptingAnswers,
-                result = optionResult(index, card.correctIndex, state.pickedIndex),
-                onClick = { actions.onAnswer(index) }
-            )
-        }
-    } else {
-        KxCard { Text("Next question …", color = Kx.Muted, fontSize = 15.sp) }
-    }
-
-    Text(state.statusText, color = Kx.Muted, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 21.sp, modifier = Modifier.fillMaxWidth())
-    if (state.voiceError.isNotBlank()) {
-        KxCard {
-            KxLabel("ELEVENLABS ERROR")
-            Spacer(Modifier.height(6.dp))
-            Text(state.voiceError, color = Kx.Bad, fontSize = 13.sp, lineHeight = 19.sp)
-            Spacer(Modifier.height(10.dp))
-            KxButton("Retry ElevenLabs", onClick = actions.onRetryVoice, modifier = Modifier.fillMaxWidth())
-        }
-    }
-    KxButton("End session", onClick = actions.onFinish, primary = false, modifier = Modifier.fillMaxWidth())
-}
-
 /** null = not answered yet, otherwise how this option should look after the answer. */
 private enum class OptionResult { CORRECT, WRONG_PICK, OTHER }
 
@@ -290,7 +358,7 @@ private fun optionResult(index: Int, correctIndex: Int, picked: Int?): OptionRes
 }
 
 @Composable
-private fun OptionTile(number: Int, text: String, enabled: Boolean, result: OptionResult?, onClick: () -> Unit) {
+private fun OptionTile(number: Int, text: String, enabled: Boolean, result: OptionResult?, onClick: () -> Unit, compact: Boolean = false) {
     val shape = RoundedCornerShape(18.dp)
     val border = when (result) {
         OptionResult.CORRECT -> Kx.Good
@@ -309,12 +377,12 @@ private fun OptionTile(number: Int, text: String, enabled: Boolean, result: Opti
             .background(fill)
             .border(if (result == null) 1.dp else 2.dp, border, shape)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(14.dp),
+            .padding(if (compact) 10.dp else 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(34.dp)
+                .size(if (compact) 30.dp else 34.dp)
                 .clip(CircleShape)
                 .background(
                     when (result) {
@@ -340,8 +408,8 @@ private fun OptionTile(number: Int, text: String, enabled: Boolean, result: Opti
         Text(
             text,
             color = if (result == OptionResult.OTHER) Kx.Dim else Kx.Cream,
-            fontSize = 16.sp,
-            lineHeight = 22.sp,
+            fontSize = if (compact) 14.sp else 16.sp,
+            lineHeight = if (compact) 19.sp else 22.sp,
             modifier = Modifier.weight(1f)
         )
     }

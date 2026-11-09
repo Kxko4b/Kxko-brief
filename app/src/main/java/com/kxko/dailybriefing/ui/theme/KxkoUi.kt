@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -83,16 +84,25 @@ private val KxTypography = androidx.compose.material3.Typography(
 }
 
 @Composable
-fun KxkoTheme(content: @Composable () -> Unit) {
+fun KxkoTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
+    val scheme = if (darkTheme) darkColorScheme(
+        primary = Kx.Brass, onPrimary = Kx.OnBrass,
+        secondary = Kx.BrassBright, onSecondary = Kx.OnBrass,
+        tertiary = Kx.Good, background = Kx.Bg, onBackground = Kx.Cream,
+        surface = Kx.Surface, onSurface = Kx.Cream,
+        surfaceVariant = Kx.SurfaceHi, onSurfaceVariant = Kx.Muted,
+        outline = Kx.Line, error = Kx.Bad, onError = Color.White
+    ) else lightColorScheme(
+        primary = Color(0xFF526B58), onPrimary = Color.White,
+        secondary = Color(0xFF96703E), onSecondary = Color.White,
+        tertiary = Color(0xFF526B58), background = Color(0xFFF3F2EC),
+        onBackground = Color(0xFF202A23), surface = Color(0xFFFFFEFA),
+        onSurface = Color(0xFF202A23), surfaceVariant = Color(0xFFE8ECE5),
+        onSurfaceVariant = Color(0xFF5E6A60), outline = Color(0xFFC8D0C6),
+        error = Color(0xFFB34D43), onError = Color.White
+    )
     MaterialTheme(
-        colorScheme = darkColorScheme(
-            primary = Kx.Brass, onPrimary = Kx.OnBrass,
-            secondary = Kx.BrassBright, onSecondary = Kx.OnBrass,
-            tertiary = Kx.Good, background = Kx.Bg, onBackground = Kx.Cream,
-            surface = Kx.Surface, onSurface = Kx.Cream,
-            surfaceVariant = Kx.SurfaceHi, onSurfaceVariant = Kx.Muted,
-            outline = Kx.Line, error = Kx.Bad, onError = Color.White
-        ),
+        colorScheme = scheme,
         typography = KxTypography,
         content = content
     )

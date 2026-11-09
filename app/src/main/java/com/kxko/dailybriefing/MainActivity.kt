@@ -40,9 +40,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -62,6 +60,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.ui.platform.LocalDensity
 import com.kxko.dailybriefing.ui.theme.Kx
 import com.kxko.dailybriefing.ui.theme.KxBottomBar
+import com.kxko.dailybriefing.ui.theme.KxkoTheme
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -152,15 +151,7 @@ class MainActivity : ComponentActivity() {
         })
 
         setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    primary = BRASS,
-                    background = BG,
-                    surface = SURFACE,
-                    onBackground = CREAM,
-                    onSurface = CREAM
-                )
-            ) {
+            KxkoTheme(darkTheme = true) {
                 val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
                 Column(
                     modifier = Modifier

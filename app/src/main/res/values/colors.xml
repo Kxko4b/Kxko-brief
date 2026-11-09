@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Matches the "Signal box" admin dashboard. -->
-    <color name="kxko_bg">#FF101416</color>
-    <color name="kxko_surface">#FF171D20</color>
-    <color name="kxko_brass">#FFC5A16B</color>
-    <color name="kxko_cream">#FFEEE9DF</color>
+    <color name="kxko_bg">#FF151617</color>
+    <color name="kxko_surface">#FF202224</color>
+    <color name="kxko_brass">#FFB85E2E</color>
+    <color name="kxko_cream">#FFE7E9EA</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 </resources>

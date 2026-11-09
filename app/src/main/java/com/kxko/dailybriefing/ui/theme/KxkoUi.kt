@@ -26,6 +26,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -55,6 +57,29 @@ object Kx {
     val MapSurface = Color(0xFF292D30)
     val MapGrid = Color(0xFF3B4145)
     val MapLabel = Color(0xFFB9BEC1)
+
+    // Shared layout tokens: adjust these to restyle every native screen consistently.
+    val CardRadius = 18.dp
+    val ControlRadius = 12.dp
+    val CardPadding = 18.dp
+    val ScreenGutter = 20.dp
+    val SectionGap = 16.dp
+    val ControlHeight = 48.dp
+}
+
+private val KxTypography = androidx.compose.material3.Typography(
+    displayLarge = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Bold, fontSize = 36.sp, lineHeight = 42.sp, letterSpacing = (-0.7).sp),
+    displayMedium = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Bold, fontSize = 30.sp, lineHeight = 36.sp, letterSpacing = (-0.45).sp),
+    headlineLarge = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold, fontSize = 26.sp, lineHeight = 32.sp, letterSpacing = (-0.25).sp),
+    headlineMedium = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 28.sp),
+    titleLarge = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, lineHeight = 24.sp),
+    titleMedium = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 22.sp),
+    bodyLarge = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Normal, fontSize = 16.sp, lineHeight = 24.sp),
+    bodyMedium = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 21.sp),
+    bodySmall = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Normal, fontSize = 12.sp, lineHeight = 18.sp),
+    labelLarge = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 18.sp),
+    labelMedium = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 15.sp, letterSpacing = 0.2.sp),
+    labelSmall = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 14.sp, letterSpacing = 0.3.sp)
 }
 
 @Composable
@@ -68,7 +93,7 @@ fun KxkoTheme(content: @Composable () -> Unit) {
             surfaceVariant = Kx.SurfaceHi, onSurfaceVariant = Kx.Muted,
             outline = Kx.Line, error = Kx.Bad, onError = Color.White
         ),
-        typography = Typography,
+        typography = KxTypography,
         content = content
     )
 }
@@ -80,13 +105,13 @@ fun KxCard(
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(Kx.CardRadius)
     var m = modifier.fillMaxWidth()
         .clip(shape)
         .background(if (accent) Kx.SurfaceHi else Kx.Surface)
         .border(BorderStroke(1.dp, if (accent) Kx.Brass.copy(alpha = 0.38f) else Kx.Line.copy(alpha = 0.72f)), shape)
     if (onClick != null) m = m.clickable(role = Role.Button, onClick = onClick)
-    Column(modifier = m.padding(16.dp), content = content)
+    Column(modifier = m.padding(Kx.CardPadding), content = content)
 }
 
 @Composable
@@ -105,10 +130,10 @@ fun KxChip(text: String, background: Color, foreground: Color, modifier: Modifie
 
 @Composable
 fun KxButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, primary: Boolean = true, enabled: Boolean = true) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(Kx.ControlRadius)
     val bg = when { !enabled -> Kx.SurfaceHi; primary -> Kx.Brass; else -> Kx.SurfaceHi }
     val fg = when { !enabled -> Kx.Dim; primary -> Kx.OnBrass; else -> Kx.Cream }
-    Box(modifier = modifier.defaultMinSize(minHeight = 48.dp).clip(shape).background(bg)
+    Box(modifier = modifier.defaultMinSize(minHeight = Kx.ControlHeight).clip(shape).background(bg)
         .then(if (!primary || !enabled) Modifier.border(BorderStroke(1.dp, Kx.Line), shape) else Modifier)
         .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
         .padding(horizontal = 16.dp, vertical = 11.dp), contentAlignment = Alignment.Center) {
@@ -146,7 +171,7 @@ fun StackedBar(mastered: Int, shaky: Int, fresh: Int, modifier: Modifier = Modif
 /** Shared bottom navigation with a restrained selected state and consistent touch targets. */
 @Composable
 fun KxBottomBar(selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
-    val items = listOf("⌂" to "Dashboard", "▤" to "Study", "✓" to "Quiz", "↗" to "Cycling")
+    val items = listOf("⌂" to "Home", "▤" to "Study", "✓" to "Quiz", "↗" to "Ride")
     Column(modifier = modifier.fillMaxWidth().background(Kx.Bg)) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(Kx.Line))
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -155,8 +180,8 @@ fun KxBottomBar(selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Mod
                 Column(modifier = Modifier.weight(1f).clip(RoundedCornerShape(15.dp))
                     .clickable(role = Role.Tab) { onSelect(index) }.padding(vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Box(Modifier.clip(RoundedCornerShape(9.dp)).background(if (active) Kx.BrassSoft else Color.Transparent).padding(horizontal = 14.dp, vertical = 2.dp)) {
-                        Text(item.first, color = Kx.IconGrey, fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium)
+                    Box(Modifier.clip(RoundedCornerShape(9.dp)).background(if (active) Kx.SurfaceHi else Color.Transparent).padding(horizontal = 14.dp, vertical = 2.dp)) {
+                        Text(item.first, color = if (active) Kx.BrassBright else Kx.IconGrey, fontSize = 19.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium)
                     }
                     Text(item.second, color = if (active) Kx.BrassBright else Kx.Muted, fontSize = 10.sp, lineHeight = 13.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
                 }

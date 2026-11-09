@@ -172,9 +172,15 @@ class StudyQuizRepository(context: Context) {
             val exam = exams.getJSONObject(i)
             val examId = exam.getString("id")
             val subject = exam.optString("subject", "Schulfach")
-            val rows = request("GET",
-                "/rest/v1/exam_questions?select=id,kind,payload,right_count,wrong_count&exam_id=eq.${enc(examId)}&order=wrong_count.desc,last_seen.asc",
-                null, token)
+            val rowsPath = "/rest/v1/exam_questions?select=id,kind,payload,right_count,wrong_count&exam_id=eq.${enc(examId)}&order=wrong_count.desc,last_seen.asc"
+            val rows = try {
+                requestWithRetry("GET", rowsPath, null, token)
+            } catch (e: Exception) {
+                if (e.message?.contains("HTTP 401") == true) {
+                    token = refreshSession()
+                    requestWithRetry("GET", rowsPath, null, token)
+                } else throw e
+            }
             val cards = mutableListOf<Pair<String, String>>()
             for (j in 0 until rows.length()) {
                 val row = rows.getJSONObject(j)
@@ -285,9 +291,32 @@ class StudyQuizRepository(context: Context) {
 
     private fun loadExams(token: String): JSONArray {
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-        return request("GET",
+        return requestWithRetry("GET",
             "/rest/v1/exams?select=id,subject,exam_date,topics&exam_date=gte.${enc(today)}&topics=not.is.null&order=exam_date.asc",
             null, token)
+    }
+
+    /**
+     * A first request after opening the app can race a temporary connection or Supabase
+     * cold-start response. Retry only transient failures; auth errors are handled by the
+     * caller so we never hide a genuinely expired or invalid login.
+     */
+    private fun requestWithRetry(method: String, path: String, body: JSONObject?, token: String?): JSONArray {
+        var lastError: Exception? = null
+        for (attempt in 0..2) {
+            try {
+                return request(method, path, body, token)
+            } catch (error: Exception) {
+                lastError = error
+                val message = error.message.orEmpty()
+                val transientHttp = listOf("HTTP 408", "HTTP 425", "HTTP 429", "HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504")
+                    .any { message.contains(it) }
+                val transientNetwork = error !is IllegalStateException
+                if (attempt == 2 || (!transientHttp && !transientNetwork)) throw error
+                Thread.sleep(350L * (attempt + 1))
+            }
+        }
+        throw lastError ?: IllegalStateException("Could not load saved tests.")
     }
 
     private fun refreshSession(): String {

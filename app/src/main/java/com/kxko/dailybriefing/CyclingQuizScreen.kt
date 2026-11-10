@@ -270,12 +270,12 @@ private fun SetupView(state: QuizScreenState, actions: QuizScreenActions) {
         }
     } else {
         KxCard {
-            KxLabel("Sign in")
+            KxLabel("Your Kxko account")
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
                 value = state.email,
                 onValueChange = actions.onEmail,
-                label = { Text("Study app email") },
+                label = { Text("Kxko account email") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -283,7 +283,7 @@ private fun SetupView(state: QuizScreenState, actions: QuizScreenActions) {
             OutlinedTextField(
                 value = state.password,
                 onValueChange = actions.onPassword,
-                label = { Text("Study app password") },
+                label = { Text("Kxko account password") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth()

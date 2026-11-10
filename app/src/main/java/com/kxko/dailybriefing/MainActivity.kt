@@ -333,6 +333,7 @@ class MainActivity : ComponentActivity() {
         val access = store.accessToken()
         val refresh = store.refreshToken()
         if (!access.isNullOrBlank() && !refresh.isNullOrBlank()) {
+            PersonalPushRegistration.sync(this, access)
             view.evaluateJavascript(
                 "window.kxkoApplyNativeSession && window.kxkoApplyNativeSession(${JSONObject.quote(access)}, ${JSONObject.quote(refresh)})",
                 null
@@ -360,6 +361,7 @@ class MainActivity : ComponentActivity() {
             require(authenticated && claims.optString("sub").isNotBlank())
             require(claims.optLong("exp", 0L) > System.currentTimeMillis() / 1000L)
             store.save(accessToken, refreshToken)
+            PersonalPushRegistration.sync(this, accessToken)
         } catch (_: Exception) {
             store.clearFromWeb()
         }

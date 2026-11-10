@@ -446,6 +446,7 @@ class MainActivity : ComponentActivity() {
         // The dashboard is served from GitHub Pages; its HTML/CSS is not bundled into the APK.
         private const val ADMIN_URL = "https://kxko4b.github.io/diagrams/admin/?appVersion=2.7"
         private const val ADMIN_HOST = "kxko4b.github.io"
+        private const val SUPABASE_URL = "https://ggewdpazpeoielbqrcgm.supabase.co"
         private const val AUTO_REFRESH_MS = 60_000L
         private const val STALE_AFTER_MS = 30_000L
 

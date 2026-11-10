@@ -48,9 +48,9 @@ class StudyQuizRepository(context: Context) {
     fun signIn(email: String, password: String) {
         val body = JSONObject().put("email", email.trim()).put("password", password)
         val result = request("POST", "/auth/v1/token?grant_type=password", body, null)
-        val session = result.optJSONObject(0) ?: throw IllegalStateException("Sign-in returned an invalid session.")
-        val access = session.optString("access_token")
-        val refresh = session.optString("refresh_token")
+        val sessionResponse = result.optJSONObject(0) ?: throw IllegalStateException("Sign-in returned an invalid session.")
+        val access = sessionResponse.optString("access_token")
+        val refresh = sessionResponse.optString("refresh_token")
         if (access.isBlank() || refresh.isBlank()) throw IllegalStateException("Sign-in did not return a session.")
         session.save(access, refresh)
     }

@@ -342,6 +342,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun acceptWebSession(accessToken: String, refreshToken: String) {
+        val store = SecureSessionStore(this)
+        try {
+            require(accessToken.isNotBlank() && refreshToken.isNotBlank())
+            val parts = accessToken.split(".")
+            require(parts.size == 3) { "Invalid session token." }
+            val payload = String(
+                Base64.decode(parts[1], Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING),
+                Charsets.UTF_8
+            )
+            val claims = JSONObject(payload)
+            val audience = claims.opt("aud")
+            val authenticated = audience == "authenticated" ||
+                (audience is org.json.JSONArray && (0 until audience.length()).any { audience.optString(it) == "authenticated" })
+            require(claims.optString("iss") == "$SUPABASE_URL/auth/v1")
+            require(authenticated && claims.optString("sub").isNotBlank())
+            require(claims.optLong("exp", 0L) > System.currentTimeMillis() / 1000L)
+            store.save(accessToken, refreshToken)
+        } catch (_: Exception) {
+            store.clearFromWeb()
+        }
+    }
+
     /** Small native helpers the trusted dashboard page can call. */
     private inner class NativeBridge(private val view: WebView) {
         private fun trustedDashboard(): Boolean {
@@ -349,53 +372,26 @@ class MainActivity : ComponentActivity() {
         }
 
         @JavascriptInterface
-        fun syncSupabaseSession(accessToken: String?, refreshToken: String?) {
+        fun onPersonalSessionChanged() {
             if (!trustedDashboard()) return
-            val store = SecureSessionStore(this@MainActivity)
-            if (accessToken.isNullOrBlank() || refreshToken.isNullOrBlank()) {
-                store.clearFromWeb()
-                return
-            }
-            try {
-                val parts = accessToken.split(".")
-                require(parts.size == 3) { "Invalid session token." }
-                val payload = String(
-                    Base64.decode(parts[1], Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING),
-                    Charsets.UTF_8
-                )
-                val claims = JSONObject(payload)
-                val audience = claims.opt("aud")
-                val authenticated = audience == "authenticated" ||
-                    (audience is org.json.JSONArray && (0 until audience.length()).any { audience.optString(it) == "authenticated" })
-                require(claims.optString("iss") == "$SUPABASE_URL/auth/v1")
-                require(authenticated && claims.optString("sub").isNotBlank())
-                require(claims.optLong("exp", 0L) > System.currentTimeMillis() / 1000L)
-                store.save(accessToken, refreshToken)
-            } catch (_: Exception) {
-                store.clearFromWeb()
-            }
-        }
-
-        @JavascriptInterface
-        fun clearSupabaseSession() {
-            if (trustedDashboard()) SecureSessionStore(this@MainActivity).clearFromWeb()
-        }
-        @JavascriptInterface
-        fun tick() {
-            view.post { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
-        }
-
-        @JavascriptInterface
-        fun openStudyHub() {
             view.post {
-                view.context.startActivity(Intent(view.context, StudyHubActivity::class.java))
-            }
-        }
-
-        @JavascriptInterface
-        fun openCyclingQuiz() {
-            view.post {
-                view.context.startActivity(Intent(view.context, CyclingQuizActivity::class.java))
+                view.evaluateJavascript(
+                    "window.kxkoGetPersonalSession ? window.kxkoGetPersonalSession() : null"
+                ) { raw ->
+                    val store = SecureSessionStore(this@MainActivity)
+                    if (raw.isNullOrBlank() || raw == "null") {
+                        store.clearFromWeb()
+                        return@evaluateJavascript
+                    }
+                    try {
+                        val session = JSONObject(raw)
+                        val access = session.optString("access_token")
+                        val refresh = session.optString("refresh_token")
+                        acceptWebSession(access, refresh)
+                    } catch (_: Exception) {
+                        store.clearFromWeb()
+                    }
+                }
             }
         }
     }

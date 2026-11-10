@@ -288,7 +288,7 @@ class MainActivity : ComponentActivity() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     swipeRefresh?.isRefreshing = false
                     lastRefresh = System.currentTimeMillis()
-                    if (url?.startsWith("https://$ADMIN_HOST/") == true) syncNativeSessionToWeb(view)
+                    if (url?.startsWith("https://$ADMIN_HOST/") == true) view?.let { syncNativeSessionToWeb(it) }
                 }
 
                 override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {

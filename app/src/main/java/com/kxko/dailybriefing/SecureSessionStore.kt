@@ -30,8 +30,22 @@ internal class SecureSessionStore(context: Context) {
 
     @Synchronized
     fun clear() {
-        encrypted.edit().clear().apply()
+        encrypted.edit().clear().putBoolean(LOGOUT_PENDING, true).apply()
         legacy.edit().clear().apply()
+    }
+
+    /** Called when the hosted portal itself signs out; don't echo that logout back to the portal. */
+    @Synchronized
+    fun clearFromWeb() {
+        encrypted.edit().clear().putBoolean(LOGOUT_PENDING, false).apply()
+        legacy.edit().clear().apply()
+    }
+
+    @Synchronized
+    fun consumeLogoutPending(): Boolean {
+        val pending = encrypted.getBoolean(LOGOUT_PENDING, false)
+        if (pending) encrypted.edit().putBoolean(LOGOUT_PENDING, false).apply()
+        return pending
     }
 
     private fun read(name: String): String? {
@@ -94,6 +108,7 @@ internal class SecureSessionStore(context: Context) {
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val IV_LENGTH = 12
         const val TAG_BITS = 128
+        const val LOGOUT_PENDING = "logout_pending"
         const val ACCESS = "access_token"
         const val REFRESH = "refresh_token"
     }

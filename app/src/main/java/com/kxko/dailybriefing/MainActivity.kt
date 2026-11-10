@@ -65,6 +65,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.firebase.messaging.FirebaseMessaging
+import org.json.JSONObject
+import android.util.Base64
 
 class MainActivity : ComponentActivity() {
 
@@ -283,6 +285,7 @@ class MainActivity : ComponentActivity() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     swipeRefresh?.isRefreshing = false
                     lastRefresh = System.currentTimeMillis()
+                    if (url?.startsWith("https://$ADMIN_HOST/") == true) syncNativeSessionToWeb(view)
                 }
 
                 override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
@@ -320,8 +323,61 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Small native helpers the web page can call. Only reachable from the dashboard's own pages. */
-    private class NativeBridge(private val view: WebView) {
+    /** Apply a native personal-account session to the trusted dashboard after native sign-in. */
+    private fun syncNativeSessionToWeb(view: WebView) {
+        if (Uri.parse(view.url ?: "").host != ADMIN_HOST || Uri.parse(view.url ?: "").scheme != "https") return
+        val store = SecureSessionStore(this)
+        val access = store.accessToken()
+        val refresh = store.refreshToken()
+        if (!access.isNullOrBlank() && !refresh.isNullOrBlank()) {
+            view.evaluateJavascript(
+                "window.kxkoApplyNativeSession && window.kxkoApplyNativeSession(${JSONObject.quote(access)}, ${JSONObject.quote(refresh)})",
+                null
+            )
+        } else if (store.consumeLogoutPending()) {
+            view.evaluateJavascript("window.kxkoClearPersonalSession && window.kxkoClearPersonalSession()", null)
+        }
+    }
+
+    /** Small native helpers the trusted dashboard page can call. */
+    private inner class NativeBridge(private val view: WebView) {
+        private fun trustedDashboard(): Boolean {
+            val uri = Uri.parse(view.url ?: "")
+            return uri.scheme == "https" && uri.host == ADMIN_HOST
+        }
+
+        @JavascriptInterface
+        fun syncSupabaseSession(accessToken: String?, refreshToken: String?) {
+            if (!trustedDashboard()) return
+            val store = SecureSessionStore(this@MainActivity)
+            if (accessToken.isNullOrBlank() || refreshToken.isNullOrBlank()) {
+                store.clearFromWeb()
+                return
+            }
+            try {
+                val parts = accessToken.split(".")
+                require(parts.size == 3) { "Invalid session token." }
+                val payload = String(
+                    Base64.decode(parts[1], Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING),
+                    Charsets.UTF_8
+                )
+                val claims = JSONObject(payload)
+                val audience = claims.opt("aud")
+                val authenticated = audience == "authenticated" ||
+                    (audience is org.json.JSONArray && (0 until audience.length()).any { audience.optString(it) == "authenticated" })
+                require(claims.optString("iss") == "$SUPABASE_URL/auth/v1")
+                require(authenticated && claims.optString("sub").isNotBlank())
+                require(claims.optLong("exp", 0L) > System.currentTimeMillis() / 1000L)
+                store.save(accessToken, refreshToken)
+            } catch (_: Exception) {
+                store.clearFromWeb()
+            }
+        }
+
+        @JavascriptInterface
+        fun clearSupabaseSession() {
+            if (trustedDashboard()) SecureSessionStore(this@MainActivity).clearFromWeb()
+        }
         @JavascriptInterface
         fun tick() {
             view.post { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
@@ -347,6 +403,7 @@ class MainActivity : ComponentActivity() {
         updates.register()
         updates.check(force = false)
         MyFirebaseMessagingService.onPushWhileOpen = { refreshDashboard(force = false) }
+        webView?.let { syncNativeSessionToWeb(it) }
         // Coming back after a while: refresh straight away, then keep going every minute.
         handler.removeCallbacks(autoRefresh)
         val stale = System.currentTimeMillis() - lastRefresh > STALE_AFTER_MS

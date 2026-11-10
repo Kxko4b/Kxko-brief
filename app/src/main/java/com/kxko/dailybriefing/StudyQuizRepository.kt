@@ -41,7 +41,7 @@ data class StudyProgress(val exams: List<ExamProgress>, val weakSpots: List<Weak
  * Only the public publishable key is embedded; no service-role secret is used.
  */
 class StudyQuizRepository(context: Context) {
-    private val prefs = context.getSharedPreferences("study_quiz_auth", Context.MODE_PRIVATE)
+    private val session = SecureSessionStore(context)
     private val baseUrl = "https://ggewdpazpeoielbqrcgm.supabase.co"
     private val publishableKey = "sb_publishable_RZYBKLqjC9UYLNdqlOKZCA_IFX-5Gvm"
 
@@ -52,18 +52,18 @@ class StudyQuizRepository(context: Context) {
         val access = session.optString("access_token")
         val refresh = session.optString("refresh_token")
         if (access.isBlank() || refresh.isBlank()) throw IllegalStateException("Sign-in did not return a session.")
-        prefs.edit().putString("access_token", access).putString("refresh_token", refresh).apply()
+        session.save(access, refresh)
     }
 
     fun signOut() {
-        prefs.edit().clear().apply()
+        session.clear()
     }
 
-    fun hasSession(): Boolean = !prefs.getString("access_token", null).isNullOrBlank()
+    fun hasSession(): Boolean = !session.accessToken().isNullOrBlank()
 
     /** Runs [block] with the stored token and retries once with a refreshed token when it has expired. */
     private fun <T> authed(block: (String) -> T): T {
-        val token = prefs.getString("access_token", null)
+        val token = session.accessToken()
             ?: throw IllegalStateException("Sign in to see your progress.")
         return try {
             block(token)
@@ -150,7 +150,7 @@ class StudyQuizRepository(context: Context) {
     }
 
     fun loadUpcomingQuestions(): List<StudyQuizItem> {
-        var token = prefs.getString("access_token", null)
+        var token = session.accessToken()
             ?: throw IllegalStateException("Sign in to load your saved school tests.")
         var exams = try {
             loadExams(token)
@@ -245,7 +245,7 @@ class StudyQuizRepository(context: Context) {
 
     /** Requests ElevenLabs speech. Throws a readable error instead of silently returning null. */
     fun synthesize(text: String, languageTag: String): ByteArray {
-        var token = prefs.getString("access_token", null)
+        var token = session.accessToken()
             ?: throw IllegalStateException("No saved login. Sign in again to use ElevenLabs.")
         for (attempt in 0..1) {
             val conn = (URL("$baseUrl/functions/v1/quiz-voice").openConnection() as HttpURLConnection).apply {
@@ -320,7 +320,7 @@ class StudyQuizRepository(context: Context) {
     }
 
     private fun refreshSession(): String {
-        val refresh = prefs.getString("refresh_token", null)
+        val refresh = session.refreshToken()
             ?: throw IllegalStateException("Your session expired. Please sign in again.")
         val result = request("POST", "/auth/v1/token?grant_type=refresh_token",
             JSONObject().put("refresh_token", refresh), null).optJSONObject(0)
@@ -328,7 +328,7 @@ class StudyQuizRepository(context: Context) {
         val access = result.optString("access_token")
         val nextRefresh = result.optString("refresh_token", refresh)
         if (access.isBlank()) throw IllegalStateException("Your session expired. Please sign in again.")
-        prefs.edit().putString("access_token", access).putString("refresh_token", nextRefresh).apply()
+        session.save(access, nextRefresh)
         return access
     }
 

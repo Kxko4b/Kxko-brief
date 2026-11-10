@@ -74,6 +74,7 @@ class MainActivity : ComponentActivity() {
     private var webView: WebView? = null
     private var swipeRefresh: SwipeRefreshLayout? = null
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
+    @Volatile private var trustedDashboardLoaded = false
 
     private var loadProgress by mutableFloatStateOf(0f)
     private var loadError by mutableStateOf(false)
@@ -280,6 +281,8 @@ class MainActivity : ComponentActivity() {
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                     loadError = false
+                    val uri = Uri.parse(url ?: "")
+                    trustedDashboardLoaded = uri.scheme == "https" && uri.host == ADMIN_HOST
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -342,8 +345,7 @@ class MainActivity : ComponentActivity() {
     /** Small native helpers the trusted dashboard page can call. */
     private inner class NativeBridge(private val view: WebView) {
         private fun trustedDashboard(): Boolean {
-            val uri = Uri.parse(view.url ?: "")
-            return uri.scheme == "https" && uri.host == ADMIN_HOST
+            return trustedDashboardLoaded
         }
 
         @JavascriptInterface

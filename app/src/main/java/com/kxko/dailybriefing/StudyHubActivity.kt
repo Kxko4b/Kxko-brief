@@ -319,12 +319,12 @@ class StudyHubActivity : ComponentActivity() {
         KxLabel("Your tests", modifier = Modifier.padding(top = 4.dp))
         if (!signedIn) {
             KxCard {
-                Text("Sign in to see how ready you are for each test.", color = Kx.Cream, fontSize = 15.sp, lineHeight = 21.sp)
+                Text("Use your personal Kxko account to sync your saved tests and progress.", color = Kx.Cream, fontSize = 15.sp, lineHeight = 21.sp)
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = email,
                     onValueChange = { email = it },
-                    label = { Text("Study app email") },
+                    label = { Text("Kxko account email") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -332,7 +332,7 @@ class StudyHubActivity : ComponentActivity() {
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("Study app password") },
+                    label = { Text("Kxko account password") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth()

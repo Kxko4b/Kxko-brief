@@ -31,7 +31,12 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
+        // Keep legacy admin registration intact, and separately bind the token to a
+        // personal account only when this installation has a valid saved personal session.
         DeviceRegistration.register(token)
+        SecureSessionStore(this).accessToken()?.let { access ->
+            PersonalPushRegistration.register(this, token, access)
+        }
     }
 
     private fun showNotification(title: String, body: String, soundMode: String, vibrationEnabled: Boolean) {

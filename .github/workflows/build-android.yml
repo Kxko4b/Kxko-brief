@@ -1,8 +1,16 @@
 name: Build Android APK
 
 on:
-  push:
+  pull_request:
     branches: [master]
+    paths:
+      - "app/**"
+      - "gradle/**"
+      - "*.gradle.kts"
+      - "gradle.properties"
+      - ".github/workflows/build-android.yml"
+  push:
+    branches: [master, feat/personalised-briefing-platform]
     paths:
       - "app/**"
       - "gradle/**"

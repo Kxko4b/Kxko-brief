@@ -40,9 +40,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -62,10 +60,13 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.ui.platform.LocalDensity
 import com.kxko.dailybriefing.ui.theme.Kx
 import com.kxko.dailybriefing.ui.theme.KxBottomBar
+import com.kxko.dailybriefing.ui.theme.KxkoTheme
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.firebase.messaging.FirebaseMessaging
+import org.json.JSONObject
+import android.util.Base64
 
 class MainActivity : ComponentActivity() {
 
@@ -73,6 +74,7 @@ class MainActivity : ComponentActivity() {
     private var webView: WebView? = null
     private var swipeRefresh: SwipeRefreshLayout? = null
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
+    @Volatile private var trustedDashboardLoaded = false
 
     private var loadProgress by mutableFloatStateOf(0f)
     private var loadError by mutableStateOf(false)
@@ -152,15 +154,7 @@ class MainActivity : ComponentActivity() {
         })
 
         setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    primary = BRASS,
-                    background = BG,
-                    surface = SURFACE,
-                    onBackground = CREAM,
-                    onSurface = CREAM
-                )
-            ) {
+            KxkoTheme(darkTheme = true) {
                 val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
                 Column(
                     modifier = Modifier
@@ -287,11 +281,14 @@ class MainActivity : ComponentActivity() {
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                     loadError = false
+                    val uri = Uri.parse(url ?: "")
+                    trustedDashboardLoaded = uri.scheme == "https" && uri.host == ADMIN_HOST
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     swipeRefresh?.isRefreshing = false
                     lastRefresh = System.currentTimeMillis()
+                    if (url?.startsWith("https://$ADMIN_HOST/") == true) view?.let { syncNativeSessionToWeb(it) }
                 }
 
                 override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
@@ -329,24 +326,74 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Small native helpers the web page can call. Only reachable from the dashboard's own pages. */
-    private class NativeBridge(private val view: WebView) {
-        @JavascriptInterface
-        fun tick() {
-            view.post { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
+    /** Apply a native personal-account session to the trusted dashboard after native sign-in. */
+    private fun syncNativeSessionToWeb(view: WebView) {
+        if (Uri.parse(view.url ?: "").host != ADMIN_HOST || Uri.parse(view.url ?: "").scheme != "https") return
+        val store = SecureSessionStore(this)
+        val access = store.accessToken()
+        val refresh = store.refreshToken()
+        if (!access.isNullOrBlank() && !refresh.isNullOrBlank()) {
+            PersonalPushRegistration.sync(this, access)
+            view.evaluateJavascript(
+                "window.kxkoApplyNativeSession && window.kxkoApplyNativeSession(${JSONObject.quote(access)}, ${JSONObject.quote(refresh)})",
+                null
+            )
+        } else if (store.consumeLogoutPending()) {
+            view.evaluateJavascript("window.kxkoClearPersonalSession && window.kxkoClearPersonalSession()", null)
+        }
+    }
+
+    private fun acceptWebSession(accessToken: String, refreshToken: String) {
+        val store = SecureSessionStore(this)
+        try {
+            require(accessToken.isNotBlank() && refreshToken.isNotBlank())
+            val parts = accessToken.split(".")
+            require(parts.size == 3) { "Invalid session token." }
+            val payload = String(
+                Base64.decode(parts[1], Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING),
+                Charsets.UTF_8
+            )
+            val claims = JSONObject(payload)
+            val audience = claims.opt("aud")
+            val authenticated = audience == "authenticated" ||
+                (audience is org.json.JSONArray && (0 until audience.length()).any { audience.optString(it) == "authenticated" })
+            require(claims.optString("iss") == "$SUPABASE_URL/auth/v1")
+            require(authenticated && claims.optString("sub").isNotBlank())
+            require(claims.optLong("exp", 0L) > System.currentTimeMillis() / 1000L)
+            store.save(accessToken, refreshToken)
+            PersonalPushRegistration.sync(this, accessToken)
+        } catch (_: Exception) {
+            store.clearFromWeb()
+        }
+    }
+
+    /** Small native helpers the trusted dashboard page can call. */
+    private inner class NativeBridge(private val view: WebView) {
+        private fun trustedDashboard(): Boolean {
+            return trustedDashboardLoaded
         }
 
         @JavascriptInterface
-        fun openStudyHub() {
+        fun onPersonalSessionChanged() {
+            if (!trustedDashboard()) return
             view.post {
-                view.context.startActivity(Intent(view.context, StudyHubActivity::class.java))
-            }
-        }
-
-        @JavascriptInterface
-        fun openCyclingQuiz() {
-            view.post {
-                view.context.startActivity(Intent(view.context, CyclingQuizActivity::class.java))
+                view.evaluateJavascript(
+                    "window.kxkoGetPersonalSession ? window.kxkoGetPersonalSession() : null"
+                ) { raw ->
+                    val store = SecureSessionStore(this@MainActivity)
+                    if (raw.isNullOrBlank() || raw == "null") {
+                        store.clearFromWeb()
+                        return@evaluateJavascript
+                    }
+                    try {
+                        val session = JSONObject(raw)
+                        val access = session.optString("access_token")
+                        val refresh = session.optString("refresh_token")
+                        acceptWebSession(access, refresh)
+                    } catch (_: Exception) {
+                        store.clearFromWeb()
+                    }
+                }
             }
         }
     }
@@ -356,6 +403,7 @@ class MainActivity : ComponentActivity() {
         updates.register()
         updates.check(force = false)
         MyFirebaseMessagingService.onPushWhileOpen = { refreshDashboard(force = false) }
+        webView?.let { syncNativeSessionToWeb(it) }
         // Coming back after a while: refresh straight away, then keep going every minute.
         handler.removeCallbacks(autoRefresh)
         val stale = System.currentTimeMillis() - lastRefresh > STALE_AFTER_MS
@@ -394,8 +442,9 @@ class MainActivity : ComponentActivity() {
     companion object {
         // Keep the dashboard URL versioned so a fresh app build fetches the newest hosted interface.
         // The dashboard is served from GitHub Pages; its HTML/CSS is not bundled into the APK.
-        private const val ADMIN_URL = "https://kxko4b.github.io/diagrams/admin/?appVersion=2.5"
+        private const val ADMIN_URL = "https://kxko4b.github.io/diagrams/admin/?appVersion=2.7"
         private const val ADMIN_HOST = "kxko4b.github.io"
+        private const val SUPABASE_URL = "https://ggewdpazpeoielbqrcgm.supabase.co"
         private const val AUTO_REFRESH_MS = 60_000L
         private const val STALE_AFTER_MS = 30_000L
 

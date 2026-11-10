@@ -12,6 +12,7 @@ import javax.crypto.spec.GCMParameterSpec
 
 /** Supabase session tokens encrypted with an AES-256 key held by Android Keystore. */
 internal class SecureSessionStore(context: Context) {
+    private val appContext = context.applicationContext
     private val encrypted = context.getSharedPreferences("study_quiz_session_secure", Context.MODE_PRIVATE)
     private val legacy = context.getSharedPreferences("study_quiz_auth", Context.MODE_PRIVATE)
 
@@ -31,6 +32,7 @@ internal class SecureSessionStore(context: Context) {
 
     @Synchronized
     fun clear() {
+        accessToken()?.let { PersonalPushRegistration.unregister(appContext, it) }
         encrypted.edit().clear().putBoolean(LOGOUT_PENDING, true).apply()
         legacy.edit().clear().apply()
     }
@@ -38,6 +40,7 @@ internal class SecureSessionStore(context: Context) {
     /** Called when the hosted portal itself signs out; don't echo that logout back to the portal. */
     @Synchronized
     fun clearFromWeb() {
+        accessToken()?.let { PersonalPushRegistration.unregister(appContext, it) }
         encrypted.edit().clear().putBoolean(LOGOUT_PENDING, false).apply()
         legacy.edit().clear().apply()
     }

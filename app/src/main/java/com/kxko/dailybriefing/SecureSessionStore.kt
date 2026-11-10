@@ -22,6 +22,7 @@ internal class SecureSessionStore(context: Context) {
         encrypted.edit()
             .putString(ACCESS, encrypt(accessToken))
             .putString(REFRESH, encrypt(refreshToken))
+            .putBoolean(LOGOUT_PENDING, false)
             .apply()
     }
 

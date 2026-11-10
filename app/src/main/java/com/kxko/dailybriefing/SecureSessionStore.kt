@@ -32,7 +32,7 @@ internal class SecureSessionStore(context: Context) {
 
     @Synchronized
     fun clear() {
-        accessToken()?.let { PersonalPushRegistration.unregister(appContext, it) }
+        unregisterPersonalPushIfPossible()
         encrypted.edit().clear().putBoolean(LOGOUT_PENDING, true).apply()
         legacy.edit().clear().apply()
     }
@@ -40,7 +40,7 @@ internal class SecureSessionStore(context: Context) {
     /** Called when the hosted portal itself signs out; don't echo that logout back to the portal. */
     @Synchronized
     fun clearFromWeb() {
-        accessToken()?.let { PersonalPushRegistration.unregister(appContext, it) }
+        unregisterPersonalPushIfPossible()
         encrypted.edit().clear().putBoolean(LOGOUT_PENDING, false).apply()
         legacy.edit().clear().apply()
     }
@@ -50,6 +50,16 @@ internal class SecureSessionStore(context: Context) {
         val pending = encrypted.getBoolean(LOGOUT_PENDING, false)
         if (pending) encrypted.edit().putBoolean(LOGOUT_PENDING, false).apply()
         return pending
+    }
+
+
+    private fun unregisterPersonalPushIfPossible() {
+        val access = try {
+            encrypted.getString(ACCESS, null)?.let(::decrypt)
+        } catch (_: Exception) {
+            null
+        }
+        access?.let { PersonalPushRegistration.unregister(appContext, it) }
     }
 
     private fun read(name: String): String? {

@@ -20,6 +20,37 @@ internal object PersonalPushRegistration {
             .addOnFailureListener { error -> println("PERSONAL PUSH TOKEN ERROR: ${error.message}") }
     }
 
+    fun unregister(context: Context, accessToken: String) {
+        if (accessToken.isBlank()) return
+        com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+            .addOnSuccessListener { token ->
+                if (token.isBlank()) return@addOnSuccessListener
+                thread(name = "personal-push-unregistration") {
+                    var connection: HttpURLConnection? = null
+                    try {
+                        connection = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
+                            requestMethod = "POST"
+                            setRequestProperty("Content-Type", "application/json")
+                            setRequestProperty("Authorization", "Bearer $accessToken")
+                            connectTimeout = 15000
+                            readTimeout = 15000
+                            doOutput = true
+                        }
+                        val escaped = token.replace("\\", "\\\\").replace("\"", "\\\"")
+                        connection.outputStream.use {
+                            it.write("{\"action\":\"unregister\",\"token\":\"$escaped\"}".toByteArray(Charsets.UTF_8))
+                        }
+                        val status = connection.responseCode
+                        if (status !in 200..299) println("PERSONAL PUSH UNREGISTRATION FAILED: HTTP $status")
+                    } catch (error: Exception) {
+                        println("PERSONAL PUSH UNREGISTRATION ERROR: ${error.message}")
+                    } finally {
+                        connection?.disconnect()
+                    }
+                }
+            }
+    }
+
     fun register(context: Context, token: String, accessToken: String) {
         if (token.isBlank() || accessToken.isBlank()) return
         thread(name = "personal-push-registration") {

@@ -20,4 +20,14 @@
             android:targetPackage="com.kxko.dailybriefing"
             android:targetClass="com.kxko.dailybriefing.CyclingQuizActivity" />
     </shortcut>
+    <shortcut
+        android:shortcutId="cycling_tracker"
+        android:enabled="true"
+        android:shortcutShortLabel="@string/shortcut_cycling_short"
+        android:shortcutLongLabel="@string/shortcut_cycling_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.kxko.dailybriefing"
+            android:targetClass="com.kxko.dailybriefing.CyclingTrackerActivity" />
+    </shortcut>
 </shortcuts>

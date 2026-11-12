@@ -261,6 +261,12 @@ class UpdateController(private val activity: ComponentActivity) {
                 .setDataAndType(contentUri, "application/vnd.android.package-archive")
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             activity.startActivity(installIntent)
+            // Avoid launching the same completed DownloadManager item again on every app start.
+            prefs.edit().remove(KEY_DOWNLOAD_ID).apply()
+            downloadId = -1L
+            info = null
+            stage = 0
+            message = null
         } catch (error: Exception) {
             message = "Couldn't open Android installer: ${error.message ?: "unknown error"}"
         }

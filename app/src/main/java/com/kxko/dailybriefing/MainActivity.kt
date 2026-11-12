@@ -59,11 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
-import androidx.compose.ui.platform.LocalDensity
 import com.kxko.dailybriefing.ui.theme.Kx
-import com.kxko.dailybriefing.ui.theme.KxBottomBar
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -168,7 +164,6 @@ class MainActivity : ComponentActivity() {
                     onSurface = CREAM
                 )
             ) {
-                val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -200,16 +195,6 @@ class MainActivity : ComponentActivity() {
                                 webView?.loadUrl(ADMIN_URL)
                             })
                         }
-                    }
-                    if (!keyboardOpen) {
-                        UpdateBanner(updates, Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
-                        KxBottomBar(selected = 0, onSelect = { index ->
-                            when (index) {
-                                1 -> startActivity(Intent(this@MainActivity, StudyHubActivity::class.java))
-                                2 -> startActivity(Intent(this@MainActivity, CyclingQuizActivity::class.java))
-                                3 -> startActivity(Intent(this@MainActivity, CyclingTrackerActivity::class.java))
-                            }
-                        })
                     }
                 }
             }

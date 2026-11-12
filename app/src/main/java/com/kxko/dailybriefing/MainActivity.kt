@@ -4,18 +4,14 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.view.HapticFeedbackConstants
+import android.view.View
 import android.webkit.CookieManager
-import android.webkit.JavascriptInterface
+import android.webkit.GeolocationPermissions
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
-import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -23,73 +19,25 @@ import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
-import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
-import androidx.compose.ui.platform.LocalDensity
-import com.kxko.dailybriefing.ui.theme.Kx
-import com.kxko.dailybriefing.ui.theme.KxBottomBar
 import androidx.core.content.ContextCompat
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.google.firebase.messaging.FirebaseMessaging
 
+/**
+ * Android host for the V2 web application.
+ *
+ * The interface is intentionally rendered by V2 itself. There is no second native
+ * dashboard, tab bar, or Android-only screen implementation to drift out of sync.
+ */
 class MainActivity : ComponentActivity() {
 
-    private val updates by lazy { UpdateController(this) }
     private var webView: WebView? = null
-    private var swipeRefresh: SwipeRefreshLayout? = null
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
-
-    private var loadProgress by mutableFloatStateOf(0f)
-    private var loadError by mutableStateOf(false)
-
-    private val handler = Handler(Looper.getMainLooper())
-    private var lastRefresh = 0L
-
-    /** Quietly refreshes the dashboard every minute while the app is on screen. */
-    private val autoRefresh = object : Runnable {
-        override fun run() {
-            refreshDashboard(force = false)
-            handler.postDelayed(this, AUTO_REFRESH_MS)
-        }
-    }
-
-    private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private var pendingGeoOrigin: String? = null
+    private var pendingGeoCallback: GeolocationPermissions.Callback? = null
 
     private val filePickerLauncher =
         registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -97,27 +45,35 @@ class MainActivity : ComponentActivity() {
             fileChooserCallback = null
         }
 
+    private val locationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+            val granted = result[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                result[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+            pendingGeoCallback?.invoke(pendingGeoOrigin, granted, false)
+            pendingGeoCallback = null
+            pendingGeoOrigin = null
+        }
+
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
         super.onCreate(savedInstanceState)
-        // Use opaque, coordinated system bars. Transparent bars let page content appear
-        // underneath Samsung's status/navigation areas and can make the UI feel unfinished.
+
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(BG.toArgb()),
-            navigationBarStyle = SystemBarStyle.dark(NAV_BAR.toArgb())
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.rgb(11, 13, 12)),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.rgb(11, 13, 12))
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
-            window.navigationBarDividerColor = NAV_BAR.toArgb()
         }
 
-        // Keep the existing Daily Briefing push-notification registration.
+        // Keep the existing push-notification registration used by the V2 ecosystem.
         FirebaseMessaging.getInstance()
             .subscribeToTopic("Kxko-Daily-Briefing")
-            .addOnCompleteListener { task ->
-                if (task.isSuccessful) println("Subscribed to Kxko-Daily-Briefing")
-                else println("Topic subscription failed: ${task.exception}")
-            }
+        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            if (task.isSuccessful) DeviceRegistration.register(task.result)
+        }
 
         if (
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -126,157 +82,58 @@ class MainActivity : ComponentActivity() {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
-            if (task.isSuccessful) DeviceRegistration.register(task.result)
-            else println("FCM TOKEN ERROR: ${task.exception}")
+        val browser = createV2WebView()
+        webView = browser
+        setContentView(browser)
+
+        // Let V2 draw edge-to-edge while keeping its own header and bottom navigation
+        // clear of Android's status and gesture/navigation areas.
+        ViewCompat.setOnApplyWindowInsetsListener(browser) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(0, bars.top, 0, bars.bottom)
+            insets
         }
 
-        // Back: first step back inside the dashboard (sub-page -> menu -> overview), then web history, then close.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                val view = webView
-                if (view == null) {
-                    finishFromBack()
-                    return
+                val page = webView
+                if (page?.canGoBack() == true) page.goBack() else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
                 }
-                view.evaluateJavascript("(window.kxkoBack ? window.kxkoBack() : false)") { result ->
-                    if (result == "true") return@evaluateJavascript
-                    if (view.canGoBack()) view.goBack() else finishFromBack()
-                }
-            }
-
-            private fun finishFromBack() {
-                isEnabled = false
-                onBackPressedDispatcher.onBackPressed()
             }
         })
-
-        setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    primary = BRASS,
-                    background = BG,
-                    surface = SURFACE,
-                    onBackground = CREAM,
-                    onSurface = CREAM
-                )
-            ) {
-                val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(BG)
-                        .safeDrawingPadding()
-                        .imePadding()
-                ) {
-                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        AndroidView(
-                            modifier = Modifier.fillMaxSize(),
-                            factory = { createDashboard() }
-                        )
-
-                        if (loadProgress < 1f && !loadError) {
-                            LinearProgressIndicator(
-                                progress = { loadProgress },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(3.dp)
-                                    .align(Alignment.TopCenter),
-                                color = BRASS,
-                                trackColor = Color.Transparent
-                            )
-                        }
-
-                        if (loadError) {
-                            OfflineScreen(onRetry = {
-                                loadError = false
-                                webView?.loadUrl(ADMIN_URL)
-                            })
-                        }
-                    }
-                    if (!keyboardOpen) {
-                        UpdateBanner(updates, Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
-                        KxBottomBar(selected = 0, onSelect = { index ->
-                            when (index) {
-                                1 -> startActivity(Intent(this@MainActivity, StudyHubActivity::class.java))
-                                2 -> startActivity(Intent(this@MainActivity, CyclingQuizActivity::class.java))
-                                3 -> startActivity(Intent(this@MainActivity, CyclingTrackerActivity::class.java))
-                            }
-                        })
-                    }
-                }
-            }
-        }
-    }
-
-    /** A pull-to-refresh container around the dashboard WebView. */
-    private fun createDashboard(): SwipeRefreshLayout {
-        val web = createAdminWebView()
-        webView = web
-        return SwipeRefreshLayout(this).also { layout ->
-            swipeRefresh = layout
-            layout.addView(web)
-            layout.setColorSchemeColors(BRASS.toArgb())
-            layout.setProgressBackgroundColorSchemeColor(SURFACE.toArgb())
-            // Only start a pull when the page is scrolled to the very top.
-            layout.setOnChildScrollUpCallback { _, _ -> web.scrollY > 0 }
-            layout.setOnRefreshListener { refreshDashboard(force = true) }
-        }
-    }
-
-    /**
-     * Asks the dashboard page to reload what is on screen (window.kxkoRefresh).
-     * If the page is an old cached version without that function, it falls back to a normal reload.
-     */
-    private fun refreshDashboard(force: Boolean) {
-        val view = webView ?: return
-        if (loadError) {
-            swipeRefresh?.isRefreshing = false
-            return
-        }
-        lastRefresh = System.currentTimeMillis()
-        view.evaluateJavascript("typeof window.kxkoRefresh") { type ->
-            if (type == "\"function\"") {
-                view.evaluateJavascript("window.kxkoRefresh($force)", null)
-                // Pull-to-refresh: let the spinner show for a moment so it feels like something happened.
-                if (force) handler.postDelayed({ swipeRefresh?.isRefreshing = false }, 900)
-            } else if (force) {
-                view.reload()
-                handler.postDelayed({ swipeRefresh?.isRefreshing = false }, 900)
-            }
-        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun createAdminWebView(): WebView {
+    private fun createV2WebView(): WebView {
         return WebView(this).apply {
-            setBackgroundColor(BG.toArgb())
-            overScrollMode = android.view.View.OVER_SCROLL_NEVER
+            setBackgroundColor(android.graphics.Color.rgb(11, 13, 12))
+            overScrollMode = View.OVER_SCROLL_NEVER
+            isVerticalScrollBarEnabled = false
 
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.databaseEnabled = true
-            settings.loadsImagesAutomatically = true
-            settings.javaScriptCanOpenWindowsAutomatically = false
-            settings.setSupportMultipleWindows(false)
-            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            settings.allowFileAccess = false
-            settings.allowContentAccess = true
-            settings.cacheMode = WebSettings.LOAD_DEFAULT
-            // Lets the dashboard know it is running inside the app (app-style tweaks on the web side).
-            settings.userAgentString = settings.userAgentString + " KxkoApp/2.1"
+            settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                databaseEnabled = true
+                loadsImagesAutomatically = true
+                javaScriptCanOpenWindowsAutomatically = false
+                setSupportMultipleWindows(false)
+                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                allowFileAccess = false
+                allowContentAccess = true
+                cacheMode = WebSettings.LOAD_DEFAULT
+                userAgentString = userAgentString + " KxkoAndroid/V2"
+            }
 
             CookieManager.getInstance().setAcceptCookie(true)
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
 
-            addJavascriptInterface(NativeBridge(this), "KxkoNative")
-
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     val uri = request.url
-                    if (uri.scheme == "https" && uri.host == ADMIN_HOST) return false
+                    if (uri.scheme == "https" && uri.host == V2_HOST) return false
 
-                    // Keep the dashboard in-app; send unrelated links to the browser.
                     return try {
                         startActivity(Intent(Intent.ACTION_VIEW, uri))
                         true
@@ -285,98 +142,78 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                    loadError = false
-                }
-
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    swipeRefresh?.isRefreshing = false
-                    lastRefresh = System.currentTimeMillis()
-                }
-
-                override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                    // Only a failed main page shows the offline screen (failed images etc. are ignored).
-                    if (request.isForMainFrame) {
-                        loadError = true
-                        swipeRefresh?.isRefreshing = false
-                    }
+                    super.onPageFinished(view, url)
+                    MyFirebaseMessagingService.onPushWhileOpen = { webView?.reload() }
                 }
             }
 
             webChromeClient = object : WebChromeClient() {
-                override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                    loadProgress = newProgress / 100f
-                }
-
                 override fun onShowFileChooser(
                     webView: WebView?,
                     filePathCallback: ValueCallback<Array<Uri>>?,
                     fileChooserParams: FileChooserParams?
                 ): Boolean {
-                    this@MainActivity.fileChooserCallback?.onReceiveValue(null)
-                    this@MainActivity.fileChooserCallback = filePathCallback
+                    fileChooserCallback?.onReceiveValue(null)
+                    fileChooserCallback = filePathCallback
                     return try {
                         filePickerLauncher.launch(arrayOf("*/*"))
                         true
                     } catch (_: Exception) {
-                        this@MainActivity.fileChooserCallback = null
+                        fileChooserCallback = null
                         false
+                    }
+                }
+
+                override fun onGeolocationPermissionsShowPrompt(
+                    origin: String?,
+                    callback: GeolocationPermissions.Callback?
+                ) {
+                    val trustedOrigin = origin?.startsWith("https://$V2_HOST") == true
+                    if (!trustedOrigin || callback == null) {
+                        callback?.invoke(origin, false, false)
+                        return
+                    }
+
+                    val fineGranted = ContextCompat.checkSelfPermission(
+                        this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED
+                    val coarseGranted = ContextCompat.checkSelfPermission(
+                        this@MainActivity, Manifest.permission.ACCESS_COARSE_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED
+
+                    if (fineGranted || coarseGranted) {
+                        callback.invoke(origin, true, false)
+                    } else {
+                        pendingGeoOrigin = origin
+                        pendingGeoCallback = callback
+                        locationPermissionLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            )
+                        )
                     }
                 }
             }
 
-            loadUrl(ADMIN_URL)
-        }
-    }
-
-    /** Small native helpers the web page can call. Only reachable from the dashboard's own pages. */
-    private class NativeBridge(private val view: WebView) {
-        @JavascriptInterface
-        fun tick() {
-            view.post { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
-        }
-
-        @JavascriptInterface
-        fun openStudyHub() {
-            view.post {
-                view.context.startActivity(Intent(view.context, StudyHubActivity::class.java))
-            }
-        }
-
-        @JavascriptInterface
-        fun openCyclingQuiz() {
-            view.post {
-                view.context.startActivity(Intent(view.context, CyclingQuizActivity::class.java))
-            }
+            loadUrl(V2_URL)
         }
     }
 
     override fun onResume() {
         super.onResume()
-        updates.register()
-        updates.check(force = false)
-        MyFirebaseMessagingService.onPushWhileOpen = { refreshDashboard(force = false) }
-        // Coming back after a while: refresh straight away, then keep going every minute.
-        handler.removeCallbacks(autoRefresh)
-        val stale = System.currentTimeMillis() - lastRefresh > STALE_AFTER_MS
-        handler.postDelayed(autoRefresh, if (stale && lastRefresh != 0L) 0L else AUTO_REFRESH_MS)
+        MyFirebaseMessagingService.onPushWhileOpen = { webView?.reload() }
+        webView?.onResume()
     }
 
     override fun onPause() {
-        updates.unregister()
-        handler.removeCallbacks(autoRefresh)
         MyFirebaseMessagingService.onPushWhileOpen = null
+        webView?.onPause()
         super.onPause()
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        // Tapped a notification while the app was already open.
-        refreshDashboard(force = false)
-    }
-
     override fun onDestroy() {
-        handler.removeCallbacksAndMessages(null)
         fileChooserCallback?.onReceiveValue(null)
         fileChooserCallback = null
         webView?.apply {
@@ -387,54 +224,11 @@ class MainActivity : ComponentActivity() {
             destroy()
         }
         webView = null
-        swipeRefresh = null
         super.onDestroy()
     }
 
     companion object {
-        // Keep the dashboard URL versioned so a fresh app build fetches the newest hosted interface.
-        // The dashboard is served from GitHub Pages; its HTML/CSS is not bundled into the APK.
-        private const val ADMIN_URL = "https://kxko4b.github.io/diagrams/admin/?appVersion=2.5"
-        private const val ADMIN_HOST = "kxko4b.github.io"
-        private const val AUTO_REFRESH_MS = 60_000L
-        private const val STALE_AFTER_MS = 30_000L
-
-        private val BG = Kx.Bg
-        private val SURFACE = Kx.Surface
-        // A neutral grey gives Samsung's gesture/three-button navigation area a deliberate,
-        // integrated finish instead of the transparent/black strip.
-        private val NAV_BAR = Kx.Surface
-        private val BRASS = Kx.Brass
-        private val CREAM = Kx.Cream
-    }
-}
-
-@Composable
-private fun OfflineScreen(onRetry: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Kx.Bg)
-            .pointerInput(Unit) { }
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text("K", color = Kx.Brass, fontSize = 56.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(12.dp))
-        Text("Can't reach the dashboard", color = Kx.Cream, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Check your internet connection and try again.",
-            color = Kx.Muted,
-            fontSize = 14.sp
-        )
-        Spacer(Modifier.height(24.dp))
-        Button(
-            onClick = onRetry,
-            colors = ButtonDefaults.buttonColors(containerColor = Kx.Brass, contentColor = Kx.OnBrass)
-        ) {
-            Text("Try again")
-        }
+        private const val V2_HOST = "kxko4b.github.io"
+        private const val V2_URL = "https://kxko4b.github.io/V2/"
     }
 }

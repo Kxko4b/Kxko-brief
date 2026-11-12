@@ -25,8 +25,8 @@ import java.net.URL
 data class UpdateInfo(val versionCode: Long, val versionName: String, val apkUrl: String)
 
 /**
- * Checks the GitHub Releases of Kxko-brief for a newer build, downloads it and hands it to the Android installer.
- * Releases are tagged "v<versionCode>" by CI, so comparing the tag with the installed versionCode is enough.
+ * Checks GitHub Releases, downloads the signed APK with DownloadManager and opens
+ * Android's package installer. Android itself must confirm the final installation.
  */
 class UpdateController(private val activity: ComponentActivity) {
     var info by mutableStateOf<UpdateInfo?>(null)
@@ -39,48 +39,59 @@ class UpdateController(private val activity: ComponentActivity) {
     var checking by mutableStateOf(false)
         private set
 
+    var onUpdateAvailable: ((UpdateInfo) -> Unit)? = null
+
     private val prefs = activity.getSharedPreferences("updater", Context.MODE_PRIVATE)
-    private var downloadId = -1L
+    private var downloadId = prefs.getLong(KEY_DOWNLOAD_ID, -1L)
     private var registered = false
 
     val installedCode: Long
-        get() = PackageInfoCompat.getLongVersionCode(activity.packageManager.getPackageInfo(activity.packageName, 0))
+        get() = PackageInfoCompat.getLongVersionCode(
+            activity.packageManager.getPackageInfo(activity.packageName, 0)
+        )
 
     val installedName: String
         get() = activity.packageManager.getPackageInfo(activity.packageName, 0).versionName ?: "?"
 
     private val apkFile: File
-        get() = File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "kxko-update.apk")
+        get() = File(
+            activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                ?: activity.filesDir,
+            "kxko-update.apk"
+        )
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val id = intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) ?: return
             if (id != downloadId) return
-            activity.runOnUiThread { onDownloadFinished() }
+            activity.runOnUiThread { inspectDownload() }
         }
     }
 
     fun register() {
         if (registered) return
         ContextCompat.registerReceiver(
-            activity, receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), ContextCompat.RECEIVER_EXPORTED
+            activity,
+            receiver,
+            IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+            ContextCompat.RECEIVER_EXPORTED
         )
         registered = true
+        inspectDownload()
     }
 
     fun unregister() {
         if (!registered) return
-        try { activity.unregisterReceiver(receiver) } catch (_: Exception) { }
+        runCatching { activity.unregisterReceiver(receiver) }
         registered = false
     }
 
-    /** Looks for a newer release. Quiet checks run at most every 3 hours; [force] always asks. */
+    /** Checks quietly at most every six hours; force=true bypasses the interval. */
     fun check(force: Boolean) {
-        if (checking || stage != 0 && info != null) return
-        val last = prefs.getLong("last_check", 0L)
+        if (checking || stage == 1 || stage == 2 || info != null) return
+        val last = prefs.getLong(KEY_LAST_CHECK, 0L)
         if (!force && System.currentTimeMillis() - last < CHECK_EVERY_MS) return
         checking = true
-        if (force) message = null
         Thread {
             var found: UpdateInfo? = null
             var failed = false
@@ -91,41 +102,47 @@ class UpdateController(private val activity: ComponentActivity) {
             }
             activity.runOnUiThread {
                 checking = false
-                if (!failed) prefs.edit().putLong("last_check", System.currentTimeMillis()).apply()
+                if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                if (!failed) prefs.edit().putLong(KEY_LAST_CHECK, System.currentTimeMillis()).apply()
                 val newer = found?.takeIf { it.versionCode > installedCode }
                 if (newer != null) {
                     info = newer
                     stage = 0
                     message = null
+                    onUpdateAvailable?.invoke(newer)
                 } else if (force) {
-                    message = if (failed) "Couldn't reach GitHub. Try again in a bit." else "You're on the latest version."
+                    message = if (failed) "Couldn't reach GitHub. Try again later." else "You're on the latest version."
                 }
             }
         }.start()
     }
 
     private fun fetchLatest(): UpdateInfo? {
-        val conn = (URL(LATEST_URL).openConnection() as HttpURLConnection).apply {
+        val connection = (URL(LATEST_URL).openConnection() as HttpURLConnection).apply {
             connectTimeout = 10000
             readTimeout = 15000
             setRequestProperty("Accept", "application/vnd.github+json")
+            setRequestProperty("User-Agent", "Kxko-Daily-Briefing-Android")
         }
         try {
-            if (conn.responseCode == 404) return null // no release published yet
-            if (conn.responseCode !in 200..299) throw IllegalStateException("HTTP ${conn.responseCode}")
-            val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+            if (connection.responseCode == 404) return null
+            if (connection.responseCode !in 200..299) {
+                throw IllegalStateException("GitHub returned HTTP ${connection.responseCode}")
+            }
+            val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
             val code = json.optString("tag_name").removePrefix("v").toLongOrNull() ?: return null
             val assets = json.optJSONArray("assets") ?: return null
-            for (i in 0 until assets.length()) {
-                val asset = assets.getJSONObject(i)
-                if (asset.optString("name").endsWith(".apk")) {
-                    val name = json.optString("name").ifBlank { "build $code" }
-                    return UpdateInfo(code, name, asset.getString("browser_download_url"))
+            for (index in 0 until assets.length()) {
+                val asset = assets.getJSONObject(index)
+                val assetName = asset.optString("name")
+                if (assetName.endsWith(".apk", ignoreCase = true)) {
+                    val displayName = json.optString("name").ifBlank { "Build $code" }
+                    return UpdateInfo(code, displayName, asset.getString("browser_download_url"))
                 }
             }
             return null
         } finally {
-            conn.disconnect()
+            connection.disconnect()
         }
     }
 
@@ -141,51 +158,120 @@ class UpdateController(private val activity: ComponentActivity) {
             apkFile.delete()
             val request = DownloadManager.Request(Uri.parse(target.apkUrl))
                 .setTitle("Kxko update ${target.versionName}")
+                .setDescription("Downloading the latest Kxko Daily Briefing update")
+                .setMimeType("application/vnd.android.package-archive")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationUri(Uri.fromFile(apkFile))
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(false)
+                .setDestinationInExternalFilesDir(
+                    activity,
+                    Environment.DIRECTORY_DOWNLOADS,
+                    "kxko-update.apk"
+                )
             val manager = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             downloadId = manager.enqueue(request)
+            prefs.edit().putLong(KEY_DOWNLOAD_ID, downloadId).apply()
             stage = 1
-            message = "Downloading …"
-        } catch (e: Exception) {
-            message = "Download failed: ${e.message ?: "unknown error"}"
+            message = "Downloading update…"
+        } catch (error: Exception) {
+            stage = 0
+            message = "Download failed: ${error.message ?: "unknown error"}"
+        }
+    }
+
+    /** Re-checks DownloadManager after activity/process recreation. */
+    private fun inspectDownload() {
+        if (downloadId < 0L) return
+        val manager = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val cursor = manager.query(DownloadManager.Query().setFilterById(downloadId))
+        cursor.use {
+            if (it == null || !it.moveToFirst()) return
+            when (it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))) {
+                DownloadManager.STATUS_SUCCESSFUL -> onDownloadFinished()
+                DownloadManager.STATUS_FAILED -> {
+                    stage = 0
+                    message = "Download failed. Please try again."
+                    prefs.edit().remove(KEY_DOWNLOAD_ID).apply()
+                    downloadId = -1L
+                }
+                DownloadManager.STATUS_PENDING,
+                DownloadManager.STATUS_RUNNING,
+                DownloadManager.STATUS_PAUSED -> {
+                    stage = 1
+                    message = "Downloading update…"
+                }
+            }
         }
     }
 
     private fun onDownloadFinished() {
-        if (apkFile.exists() && apkFile.length() > 100_000L) {
+        if (apkFile.exists() && apkFile.length() > MIN_APK_BYTES) {
             stage = 2
-            message = "Downloaded. Tap Install."
+            message = "Download complete. Opening Android installer…"
             install()
         } else {
             stage = 0
-            message = "Download didn't finish. Try again."
+            message = "The downloaded APK is missing or incomplete. Try again."
+            prefs.edit().remove(KEY_DOWNLOAD_ID).apply()
+            downloadId = -1L
+        }
+    }
+
+    /** Called after returning from Android's 'install unknown apps' settings page. */
+    fun resumePendingInstall() {
+        if (stage == 2 && apkFile.exists() &&
+            (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || activity.packageManager.canRequestPackageInstalls())
+        ) {
+            install()
+        } else if (downloadId >= 0L && stage == 0) {
+            inspectDownload()
         }
     }
 
     fun install() {
-        if (!apkFile.exists()) {
+        if (!apkFile.exists() || apkFile.length() <= MIN_APK_BYTES) {
             stage = 0
-            message = "The file is gone. Download it again."
+            message = "The update file is no longer available. Download it again."
             return
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(activity, "Allow Kxko to install updates, then come back and tap Install.", Toast.LENGTH_LONG).show()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !activity.packageManager.canRequestPackageInstalls()
+        ) {
+            Toast.makeText(
+                activity,
+                "Allow Kxko to install updates, then return to the app.",
+                Toast.LENGTH_LONG
+            ).show()
             activity.startActivity(
-                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}"))
+                Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:${activity.packageName}")
+                )
             )
             return
         }
-        val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", apkFile)
-        activity.startActivity(
-            Intent(Intent.ACTION_VIEW)
-                .setDataAndType(uri, "application/vnd.android.package-archive")
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
+
+        try {
+            val contentUri = FileProvider.getUriForFile(
+                activity,
+                "${activity.packageName}.fileprovider",
+                apkFile
+            )
+            val installIntent = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(contentUri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            activity.startActivity(installIntent)
+        } catch (error: Exception) {
+            message = "Couldn't open Android installer: ${error.message ?: "unknown error"}"
+        }
     }
 
     companion object {
-        private const val LATEST_URL = "https://api.github.com/repos/Kxko4b/Kxko-brief/releases/latest"
-        private const val CHECK_EVERY_MS = 3L * 60 * 60 * 1000
+        private const val LATEST_URL =
+            "https://api.github.com/repos/Kxko4b/Kxko-brief/releases/latest"
+        private const val CHECK_EVERY_MS = 6L * 60L * 60L * 1000L
+        private const val MIN_APK_BYTES = 100_000L
+        private const val KEY_LAST_CHECK = "last_check"
+        private const val KEY_DOWNLOAD_ID = "download_id"
     }
 }

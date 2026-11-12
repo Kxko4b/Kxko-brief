@@ -20,6 +20,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebResourceResponse
+import androidx.webkit.WebViewAssetLoader
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
@@ -57,11 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
-import androidx.compose.ui.platform.LocalDensity
 import com.kxko.dailybriefing.ui.theme.Kx
-import com.kxko.dailybriefing.ui.theme.KxBottomBar
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -70,6 +68,11 @@ import com.google.firebase.messaging.FirebaseMessaging
 class MainActivity : ComponentActivity() {
 
     private val updates by lazy { UpdateController(this) }
+    private val assetLoader by lazy {
+        WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .build()
+    }
     private var webView: WebView? = null
     private var swipeRefresh: SwipeRefreshLayout? = null
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
@@ -161,7 +164,6 @@ class MainActivity : ComponentActivity() {
                     onSurface = CREAM
                 )
             ) {
-                val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -193,16 +195,6 @@ class MainActivity : ComponentActivity() {
                                 webView?.loadUrl(ADMIN_URL)
                             })
                         }
-                    }
-                    if (!keyboardOpen) {
-                        UpdateBanner(updates, Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
-                        KxBottomBar(selected = 0, onSelect = { index ->
-                            when (index) {
-                                1 -> startActivity(Intent(this@MainActivity, StudyHubActivity::class.java))
-                                2 -> startActivity(Intent(this@MainActivity, CyclingQuizActivity::class.java))
-                                3 -> startActivity(Intent(this@MainActivity, CyclingTrackerActivity::class.java))
-                            }
-                        })
                     }
                 }
             }
@@ -264,7 +256,7 @@ class MainActivity : ComponentActivity() {
             settings.allowContentAccess = true
             settings.cacheMode = WebSettings.LOAD_DEFAULT
             // Lets the dashboard know it is running inside the app (app-style tweaks on the web side).
-            settings.userAgentString = settings.userAgentString + " KxkoApp/2.1"
+            settings.userAgentString = settings.userAgentString + " KxkoApp/3.0"
 
             CookieManager.getInstance().setAcceptCookie(true)
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
@@ -272,6 +264,10 @@ class MainActivity : ComponentActivity() {
             addJavascriptInterface(NativeBridge(this), "KxkoNative")
 
             webViewClient = object : WebViewClient() {
+                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                    return assetLoader.shouldInterceptRequest(request.url)
+                }
+
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     val uri = request.url
                     if (uri.scheme == "https" && uri.host == ADMIN_HOST) return false
@@ -394,8 +390,8 @@ class MainActivity : ComponentActivity() {
     companion object {
         // Keep the dashboard URL versioned so a fresh app build fetches the newest hosted interface.
         // The dashboard is served from GitHub Pages; its HTML/CSS is not bundled into the APK.
-        private const val ADMIN_URL = "https://kxko4b.github.io/diagrams/admin/?appVersion=2.5"
-        private const val ADMIN_HOST = "kxko4b.github.io"
+        private const val ADMIN_URL = "https://appassets.androidplatform.net/assets/v2/index.html"
+        private const val ADMIN_HOST = "appassets.androidplatform.net"
         private const val AUTO_REFRESH_MS = 60_000L
         private const val STALE_AFTER_MS = 30_000L
 

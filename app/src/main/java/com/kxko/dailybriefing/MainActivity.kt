@@ -20,6 +20,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebResourceResponse
+import androidx.webkit.WebViewAssetLoader
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
@@ -70,6 +72,11 @@ import com.google.firebase.messaging.FirebaseMessaging
 class MainActivity : ComponentActivity() {
 
     private val updates by lazy { UpdateController(this) }
+    private val assetLoader by lazy {
+        WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .build()
+    }
     private var webView: WebView? = null
     private var swipeRefresh: SwipeRefreshLayout? = null
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
@@ -264,7 +271,7 @@ class MainActivity : ComponentActivity() {
             settings.allowContentAccess = true
             settings.cacheMode = WebSettings.LOAD_DEFAULT
             // Lets the dashboard know it is running inside the app (app-style tweaks on the web side).
-            settings.userAgentString = settings.userAgentString + " KxkoApp/2.1"
+            settings.userAgentString = settings.userAgentString + " KxkoApp/3.0"
 
             CookieManager.getInstance().setAcceptCookie(true)
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
@@ -272,6 +279,10 @@ class MainActivity : ComponentActivity() {
             addJavascriptInterface(NativeBridge(this), "KxkoNative")
 
             webViewClient = object : WebViewClient() {
+                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                    return assetLoader.shouldInterceptRequest(request.url)
+                }
+
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     val uri = request.url
                     if (uri.scheme == "https" && uri.host == ADMIN_HOST) return false
@@ -394,8 +405,8 @@ class MainActivity : ComponentActivity() {
     companion object {
         // Keep the dashboard URL versioned so a fresh app build fetches the newest hosted interface.
         // The dashboard is served from GitHub Pages; its HTML/CSS is not bundled into the APK.
-        private const val ADMIN_URL = "https://kxko4b.github.io/diagrams/admin/?appVersion=2.5"
-        private const val ADMIN_HOST = "kxko4b.github.io"
+        private const val ADMIN_URL = "https://appassets.androidplatform.net/assets/v2/index.html"
+        private const val ADMIN_HOST = "appassets.androidplatform.net"
         private const val AUTO_REFRESH_MS = 60_000L
         private const val STALE_AFTER_MS = 30_000L
 

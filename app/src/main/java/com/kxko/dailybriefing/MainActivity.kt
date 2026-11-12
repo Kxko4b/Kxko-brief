@@ -2,6 +2,7 @@ package com.kxko.dailybriefing
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -18,19 +19,16 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
-import androidx.activity.SystemBarStyle
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.firebase.messaging.FirebaseMessaging
 
 /**
- * Android host for the V2 web application.
- *
- * The interface is intentionally rendered by V2 itself. There is no second native
- * dashboard, tab bar, or Android-only screen implementation to drift out of sync.
+ * Lightweight Android host for the V2 web app.
+ * Android owns system integration; V2 owns the complete application interface.
  */
 class MainActivity : ComponentActivity() {
 
@@ -38,6 +36,7 @@ class MainActivity : ComponentActivity() {
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var pendingGeoOrigin: String? = null
     private var pendingGeoCallback: GeolocationPermissions.Callback? = null
+    private lateinit var updater: UpdateController
 
     private val filePickerLauncher =
         registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -60,17 +59,18 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.rgb(11, 13, 12)),
-            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.rgb(11, 13, 12))
-        )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            window.isNavigationBarContrastEnforced = false
+        // Keep Android's status/navigation/gesture areas visible and reserve their insets.
+        // This prevents the web app from drawing interactive controls underneath system UI.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = android.graphics.Color.rgb(11, 13, 12)
+        window.navigationBarColor = android.graphics.Color.rgb(11, 13, 12)
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
         }
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
-        // Keep the existing push-notification registration used by the V2 ecosystem.
-        FirebaseMessaging.getInstance()
-            .subscribeToTopic("Kxko-Daily-Briefing")
+        FirebaseMessaging.getInstance().subscribeToTopic("Kxko-Daily-Briefing")
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
             if (task.isSuccessful) DeviceRegistration.register(task.result)
         }
@@ -86,18 +86,43 @@ class MainActivity : ComponentActivity() {
         webView = browser
         setContentView(browser)
 
-        // Let V2 draw edge-to-edge while keeping its own header and bottom navigation
-        // clear of Android's status and gesture/navigation areas.
         ViewCompat.setOnApplyWindowInsetsListener(browser) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(0, bars.top, 0, bars.bottom)
+            val safe = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            view.setPadding(
+                safe.left,
+                safe.top,
+                safe.right,
+                maxOf(safe.bottom, ime.bottom)
+            )
             insets
+        }
+        ViewCompat.requestApplyInsets(browser)
+
+        updater = UpdateController(this).apply {
+            onUpdateAvailable = { update ->
+                if (!isFinishing && !isDestroyed) {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Kxko update available")
+                        .setMessage("Version ${update.versionName} is ready. Download it now?")
+                        .setPositiveButton("Download & install") { _, _ -> startDownload() }
+                        .setNegativeButton("Later") { _, _ -> dismiss() }
+                        .setOnCancelListener { dismiss() }
+                        .show()
+                }
+            }
+            register()
+            check(force = false)
         }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 val page = webView
-                if (page?.canGoBack() == true) page.goBack() else {
+                if (page?.canGoBack() == true) {
+                    page.goBack()
+                } else {
                     isEnabled = false
                     onBackPressedDispatcher.onBackPressed()
                 }
@@ -111,18 +136,23 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(android.graphics.Color.rgb(11, 13, 12))
             overScrollMode = View.OVER_SCROLL_NEVER
             isVerticalScrollBarEnabled = false
+            isHorizontalScrollBarEnabled = false
+            isScrollbarFadingEnabled = true
 
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
-                databaseEnabled = true
                 loadsImagesAutomatically = true
                 javaScriptCanOpenWindowsAutomatically = false
                 setSupportMultipleWindows(false)
+                setSupportZoom(false)
+                builtInZoomControls = false
+                displayZoomControls = false
                 mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                 allowFileAccess = false
                 allowContentAccess = true
                 cacheMode = WebSettings.LOAD_DEFAULT
+                mediaPlaybackRequiresUserGesture = true
                 userAgentString = userAgentString + " KxkoAndroid/V2"
             }
 
@@ -133,7 +163,6 @@ class MainActivity : ComponentActivity() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     val uri = request.url
                     if (uri.scheme == "https" && uri.host == V2_HOST) return false
-
                     return try {
                         startActivity(Intent(Intent.ACTION_VIEW, uri))
                         true
@@ -144,7 +173,9 @@ class MainActivity : ComponentActivity() {
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
-                    MyFirebaseMessagingService.onPushWhileOpen = { webView?.reload() }
+                    if (Uri.parse(url.orEmpty()).host == V2_HOST) {
+                        MyFirebaseMessagingService.onPushWhileOpen = { webView?.reload() }
+                    }
                 }
             }
 
@@ -205,6 +236,10 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         MyFirebaseMessagingService.onPushWhileOpen = { webView?.reload() }
         webView?.onResume()
+        if (::updater.isInitialized) {
+            updater.resumePendingInstall()
+            updater.check(force = false)
+        }
     }
 
     override fun onPause() {
@@ -214,8 +249,11 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (::updater.isInitialized) updater.unregister()
         fileChooserCallback?.onReceiveValue(null)
         fileChooserCallback = null
+        pendingGeoCallback?.invoke(pendingGeoOrigin, false, false)
+        pendingGeoCallback = null
         webView?.apply {
             stopLoading()
             loadUrl("about:blank")

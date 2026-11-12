@@ -265,7 +265,7 @@ class CyclingTrackerService : Service(), LocationListener {
                 val candidateSpeedKmh = measuredSpeed * 3.6f
                 val candidateSeconds = elapsedSeconds.toLong().coerceAtLeast(1L)
                 if (!isMoving) {
-                    if (lastMovementCandidateAt == 0L || now - lastMovementCandidateAt > 6000L) {
+                    if (lastMovementCandidateAt == 0L || now - lastMovementCandidateAt > MOVEMENT_CANDIDATE_TIMEOUT_MS) {
                         movementCandidateCount = 0
                         pendingMovementDistance = 0f
                         pendingMovementSeconds = 0L
@@ -577,6 +577,8 @@ class CyclingTrackerService : Service(), LocationListener {
             AutoEndLocation("Marshallstraße 6, Gießen", 50.589668, 8.7172748, 120f),
             AutoEndLocation("ALDI SÜD, Oberlachweg 7, Gießen", 50.59437, 8.71325, 120f)
         )
+        // Slow cycling can take 8–12 seconds to accumulate a reliable GPS displacement.
+        private const val MOVEMENT_CANDIDATE_TIMEOUT_MS = 20_000L
         private const val CHANNEL_ID = "cycling_tracking"
         private const val NOTIFICATION_ID = 648
     }

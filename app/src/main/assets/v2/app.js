@@ -559,7 +559,7 @@
   });
 
   // ---------- offline ----------
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !navigator.userAgent.includes('KxkoApp/')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 
@@ -933,4 +933,24 @@
   refreshAdminTab();
   const initial = location.hash.replace('#', '');
   go(initial || prefs().defaultTab || 'dashboard');
+
+  // Android shell hooks: keep the existing native refresh and back actions working
+  // while the V2 interface is bundled locally in the APK.
+  window.kxkoRefresh = async function () {
+    try {
+      await loadLive(true);
+      await syncRides();
+      refreshAdminTab();
+      go(currentTab);
+    } catch (err) {
+      console.warn('Kxko: Android refresh failed', err);
+    }
+  };
+  window.kxkoBack = function () {
+    if (currentTab !== 'dashboard') {
+      go('dashboard');
+      return true;
+    }
+    return false;
+  };
 })();

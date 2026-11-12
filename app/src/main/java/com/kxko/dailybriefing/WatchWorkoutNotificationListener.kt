@@ -17,7 +17,28 @@ import android.service.notification.StatusBarNotification
 class WatchWorkoutNotificationListener : NotificationListenerService() {
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        val current = activeNotifications?.filter { it.packageName == MI_FITNESS_PACKAGE }
+        if (current != null) {
+            val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val savedKey = prefs.getString(KEY_NOTIFICATION_KEY, "")
+            if (savedKey.isNullOrBlank() || current.none { it.key == savedKey }) {
+                prefs.edit()
+                    .putBoolean(KEY_ACTIVE, false)
+                    .putBoolean(KEY_PENDING_START, false)
+                    .remove(KEY_NOTIFICATION_KEY)
+                    .apply()
+            }
+            current.forEach(::handleWorkoutNotification)
+        }
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        handleWorkoutNotification(sbn)
+    }
+
+    private fun handleWorkoutNotification(sbn: StatusBarNotification) {
         if (sbn.packageName != MI_FITNESS_PACKAGE) return
 
         val extras = sbn.notification.extras
@@ -86,7 +107,10 @@ class WatchWorkoutNotificationListener : NotificationListenerService() {
         // Mi Fitness can replace/update a notification by briefly removing it.
         // Wait briefly and only finish if that exact workout notification is still absent.
         mainHandler.postDelayed({
-            val stillPresent = activeNotifications?.any { it.packageName == MI_FITNESS_PACKAGE && it.key == removedKey } == true
+            // A temporarily unavailable listener snapshot is not proof that the workout ended.
+            val stillPresent = activeNotifications?.any {
+                it.packageName == MI_FITNESS_PACKAGE && it.key == removedKey
+            } ?: true
             val currentPrefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             if (!stillPresent && currentPrefs.getString(KEY_NOTIFICATION_KEY, "") == removedKey &&
                 currentPrefs.getBoolean(KEY_ACTIVE, false)) {

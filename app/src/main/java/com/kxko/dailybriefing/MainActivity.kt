@@ -59,6 +59,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Start the always-armed cycling foreground service while the app is visible.
+        // Mi Fitness can then trigger a ride without the user opening the Cycling screen.
+        armCyclingDetectionIfReady()
+
         // Keep Android's status/navigation/gesture areas visible and reserve their insets.
         // This prevents the web app from drawing interactive controls underneath system UI.
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -236,9 +240,23 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         MyFirebaseMessagingService.onPushWhileOpen = { webView?.reload() }
         webView?.onResume()
+        armCyclingDetectionIfReady()
         if (::updater.isInitialized) {
             updater.resumePendingInstall()
             updater.check(force = false)
+        }
+    }
+
+    private fun armCyclingDetectionIfReady() {
+        val hasLocation = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!hasLocation || !WatchWorkoutNotificationListener.hasAccess(this)) return
+        val intent = Intent(this, CyclingTrackerService::class.java).setAction(CyclingTrackerService.ACTION_ARM)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ContextCompat.startForegroundService(this, intent)
+            else startService(intent)
+        } catch (_: SecurityException) {
+            // Android may deny location foreground-service startup if required permissions were revoked.
         }
     }
 

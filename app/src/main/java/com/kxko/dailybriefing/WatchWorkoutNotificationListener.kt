@@ -38,24 +38,33 @@ class WatchWorkoutNotificationListener : NotificationListenerService() {
         handleWorkoutNotification(sbn)
     }
 
-    private fun handleWorkoutNotification(sbn: StatusBarNotification) {
-        if (sbn.packageName != MI_FITNESS_PACKAGE) return
-
+    private fun notificationContent(sbn: StatusBarNotification): Pair<String, String> {
         val extras = sbn.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
         val body = buildString {
             append(extras.getCharSequence(Notification.EXTRA_TEXT) ?: "")
             append(' ')
             append(extras.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: "")
+            append(' ')
+            append(extras.getCharSequence(Notification.EXTRA_SUB_TEXT) ?: "")
+            append(' ')
+            append(sbn.notification.tickerText ?: "")
             extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.forEach {
                 append(' ')
                 append(it)
             }
         }
-        val text = "$title $body".lowercase().replace("…", "...")
+        return title to "$title $body".lowercase().replace("…", "...")
+    }
 
-        // Mi Fitness currently labels the active workout notification "Trainieren...".
-        // Keep this narrowly scoped to that label plus known active-workout wording.
+    private fun isActiveWorkoutNotification(sbn: StatusBarNotification): Boolean {
+        if (sbn.packageName != MI_FITNESS_PACKAGE) return false
+        val (_, text) = notificationContent(sbn)
+        val finished = listOf("finished", "completed", "beendet", "abgeschlossen", "training beendet")
+            .any(text::contains)
+        if (finished) return false
+
+        // "Trainieren..." is the exact active-workout signal shown by Mi Fitness in German.
         val germanTrainieren = text.contains("trainier")
         val workoutTerms = listOf(
             "workout", "training", "activity", "cycling", "bike", "biking",
@@ -71,12 +80,16 @@ class WatchWorkoutNotificationListener : NotificationListenerService() {
         )
         val hasWorkout = workoutTerms.any(text::contains) || germanTrainieren
         val hasStart = startTerms.any(text::contains) || germanTrainieren
-        val looksLikeActiveSport = sportTitle.any(text::contains) &&
-            !listOf("finished", "completed", "beendet", "abgeschlossen").any(text::contains)
+        val looksLikeActiveSport = sportTitle.any(text::contains)
+        return hasWorkout && (hasStart || looksLikeActiveSport)
+    }
 
+    private fun handleWorkoutNotification(sbn: StatusBarNotification) {
+        if (sbn.packageName != MI_FITNESS_PACKAGE) return
+        val (title, _) = notificationContent(sbn)
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val finishedWorkout = listOf("finished", "completed", "beendet", "abgeschlossen", "training beendet").any(text::contains)
-        if (hasWorkout && (hasStart || looksLikeActiveSport) && !finishedWorkout) {
+
+        if (isActiveWorkoutNotification(sbn)) {
             val wasActive = prefs.getBoolean(KEY_ACTIVE, false)
             prefs.edit()
                 .putBoolean(KEY_ACTIVE, true)
@@ -85,16 +98,22 @@ class WatchWorkoutNotificationListener : NotificationListenerService() {
                 .putString(KEY_LAST_EVENT, "Mi Fitness: $title")
                 .putString(KEY_NOTIFICATION_KEY, sbn.key)
                 .apply()
+            // This broadcast wakes the already-armed foreground tracker immediately.
             if (!wasActive) sendBroadcast(Intent(ACTION_WORKOUT_STARTED).setPackage(packageName))
-        } else if (finishedWorkout && prefs.getBoolean(KEY_ACTIVE, false) &&
-            prefs.getString(KEY_NOTIFICATION_KEY, "") == sbn.key) {
-            prefs.edit()
-                .putBoolean(KEY_ACTIVE, false)
-                .putBoolean(KEY_PENDING_START, false)
-                .putString(KEY_LAST_EVENT, "Mi Fitness workout completed")
-                .remove(KEY_NOTIFICATION_KEY)
-                .apply()
-            sendBroadcast(Intent(ACTION_WORKOUT_ENDED).setPackage(packageName))
+        } else {
+            val (_, text) = notificationContent(sbn)
+            val finishedWorkout = listOf("finished", "completed", "beendet", "abgeschlossen", "training beendet")
+                .any(text::contains)
+            if (finishedWorkout && prefs.getBoolean(KEY_ACTIVE, false) &&
+                prefs.getString(KEY_NOTIFICATION_KEY, "") == sbn.key) {
+                prefs.edit()
+                    .putBoolean(KEY_ACTIVE, false)
+                    .putBoolean(KEY_PENDING_START, false)
+                    .putString(KEY_LAST_EVENT, "Mi Fitness workout completed")
+                    .remove(KEY_NOTIFICATION_KEY)
+                    .apply()
+                sendBroadcast(Intent(ACTION_WORKOUT_ENDED).setPackage(packageName))
+            }
         }
     }
 
@@ -104,15 +123,24 @@ class WatchWorkoutNotificationListener : NotificationListenerService() {
         val removedKey = sbn.key
         if (!prefs.getBoolean(KEY_ACTIVE, false) || prefs.getString(KEY_NOTIFICATION_KEY, "") != removedKey) return
 
-        // Mi Fitness can replace/update a notification by briefly removing it.
-        // Wait briefly and only finish if that exact workout notification is still absent.
+        // Mi Fitness may replace its notification with a new key while a workout is active.
+        // Wait briefly, then look for any replacement active-workout notification.
         mainHandler.postDelayed({
-            // A temporarily unavailable listener snapshot is not proof that the workout ended.
-            val stillPresent = activeNotifications?.any {
-                it.packageName == MI_FITNESS_PACKAGE && it.key == removedKey
-            } ?: true
+            val current = activeNotifications
+            val replacement = current?.firstOrNull(::isActiveWorkoutNotification)
             val currentPrefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            if (!stillPresent && currentPrefs.getString(KEY_NOTIFICATION_KEY, "") == removedKey &&
+            if (replacement != null) {
+                currentPrefs.edit()
+                    .putBoolean(KEY_ACTIVE, true)
+                    .putString(KEY_NOTIFICATION_KEY, replacement.key)
+                    .putString(KEY_LAST_EVENT, "Mi Fitness workout notification refreshed")
+                    .apply()
+                return@postDelayed
+            }
+
+            // A temporarily unavailable notification snapshot is not proof that the workout ended.
+            if (current == null) return@postDelayed
+            if (currentPrefs.getString(KEY_NOTIFICATION_KEY, "") == removedKey &&
                 currentPrefs.getBoolean(KEY_ACTIVE, false)) {
                 currentPrefs.edit()
                     .putBoolean(KEY_ACTIVE, false)
@@ -122,7 +150,7 @@ class WatchWorkoutNotificationListener : NotificationListenerService() {
                     .apply()
                 sendBroadcast(Intent(ACTION_WORKOUT_ENDED).setPackage(packageName))
             }
-        }, 2000L)
+        }, 2500L)
     }
 
     companion object {

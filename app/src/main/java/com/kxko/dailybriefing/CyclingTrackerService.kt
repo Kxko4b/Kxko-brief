@@ -258,14 +258,23 @@ class CyclingTrackerService : Service(), LocationListener {
             val segment = previous.distanceTo(location)
             val elapsedSeconds = ((location.time - previous.time).coerceAtLeast(1L)) / 1000f
             val measuredSpeed = segment / elapsedSeconds
-            val movementThreshold = maxOf(8f, location.accuracy * 1.2f)
-            val movementCandidate = segment >= movementThreshold &&
-                measuredSpeed in 0.8f..16.7f && segment <= 120f
+            val movementThreshold = CyclingMotionLogic.minimumDisplacement(location.accuracy)
+            val reportedSpeed = if (location.hasSpeed()) location.speed else null
+            val reportedSpeedAccuracy = if (
+                Build.VERSION.SDK_INT >= 26 && location.hasSpeedAccuracy()
+            ) location.speedAccuracyMetersPerSecond else null
+            val movementCandidate = CyclingMotionLogic.isPlausibleMovementSegment(
+                distanceMetres = segment,
+                elapsedSeconds = elapsedSeconds,
+                accuracyMetres = location.accuracy,
+                reportedSpeedMps = reportedSpeed,
+                speedAccuracyMps = reportedSpeedAccuracy
+            )
             if (movementCandidate) {
                 val candidateSpeedKmh = measuredSpeed * 3.6f
                 val candidateSeconds = elapsedSeconds.toLong().coerceAtLeast(1L)
                 if (!isMoving) {
-                    if (lastMovementCandidateAt == 0L || now - lastMovementCandidateAt > 6000L) {
+                    if (CyclingMotionLogic.candidateWindowExpired(lastMovementCandidateAt, now)) {
                         movementCandidateCount = 0
                         pendingMovementDistance = 0f
                         pendingMovementSeconds = 0L
@@ -343,7 +352,7 @@ class CyclingTrackerService : Service(), LocationListener {
             lastLocation = location
         }
         // Stop only after a sustained quiet window; brief GPS gaps won't flicker STOP/GO.
-        if (isMoving && lastAcceptedMovementAt > 0L && now - lastAcceptedMovementAt > 10000L) {
+        if (isMoving && CyclingMotionLogic.shouldPause(lastAcceptedMovementAt, now)) {
             isMoving = false
             movementCandidateCount = 0
             lastMovementCandidateAt = 0L

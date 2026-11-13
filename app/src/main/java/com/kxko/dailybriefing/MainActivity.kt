@@ -179,6 +179,28 @@ class MainActivity : ComponentActivity() {
                     super.onPageFinished(view, url)
                     if (Uri.parse(url.orEmpty()).host == V2_HOST) {
                         MyFirebaseMessagingService.onPushWhileOpen = { webView?.reload() }
+                        // Native Android already provides the app context. Hide the redundant
+                        // V2 title strip in the installed app and lift its bottom tab bar clear
+                        // of Samsung's gesture/navigation area.
+                        view?.evaluateJavascript(
+                            """
+                            (function () {
+                              var id = 'kxko-android-layout-fix';
+                              var style = document.getElementById(id);
+                              if (!style) {
+                                style = document.createElement('style');
+                                style.id = id;
+                                document.head.appendChild(style);
+                              }
+                              style.textContent = [
+                                'header.top { display: none !important; }',
+                                '.shell { padding-top: 14px !important; }',
+                                '.tabbar { bottom: calc(28px + env(safe-area-inset-bottom)) !important; }'
+                              ].join('\\n');
+                            })();
+                            """.trimIndent(),
+                            null
+                        )
                     }
                 }
             }

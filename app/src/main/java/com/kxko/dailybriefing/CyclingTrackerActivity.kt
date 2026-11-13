@@ -43,7 +43,7 @@ import com.kxko.dailybriefing.ui.theme.KxkoTheme
 import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
@@ -52,6 +52,12 @@ import java.util.Locale
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.io.File
+
+/** CARTO's CDN-backed raster tiles avoid the slow default OSM tile endpoint. */
+private fun cartoVoyagerTiles() = XYTileSource(
+    "CARTO Voyager", 0, 19, 256, ".png",
+    arrayOf("https://basemaps.cartocdn.com/rastertiles/voyager/")
+)
 
 private data class RidePoint(val latitude: Double, val longitude: Double, val timestamp: Long = 0L, val altitude: Float = Float.NaN, val speedKmh: Float = 0f, val accuracy: Float = -1f, val bearing: Float = 0f, val verticalAccuracy: Float = -1f)
 private data class RideSummary(
@@ -102,6 +108,7 @@ class CyclingTrackerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Configuration.getInstance().userAgentValue = packageName
         window.statusBarColor = android.graphics.Color.rgb(21, 22, 23)
         window.navigationBarColor = android.graphics.Color.rgb(32, 34, 36)
         Configuration.getInstance().userAgentValue = packageName
@@ -170,7 +177,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize().background(Kx.Bg)) {
                     val mapView = remember {
                         MapView(this@CyclingTrackerActivity).apply {
-                            setTileSource(TileSourceFactory.MAPNIK)
+                            setTileSource(cartoVoyagerTiles())
                             setMultiTouchControls(true)
                             setBuiltInZoomControls(false)
                             controller.setZoom(6.0)
@@ -324,6 +331,12 @@ class CyclingTrackerActivity : ComponentActivity() {
                                 if (showElevationStats.value) SecondaryMetric("ALTITUDE", if (altitude > 0f) String.format(Locale.getDefault(), "%.0f m", altitude) else "—", Modifier.weight(1f))
                                 SecondaryMetric("STOPPED", formatDuration(stoppedSeconds), Modifier.weight(1f))
                             }
+                            Spacer(Modifier.height(10.dp))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SecondaryMetric("PACE", if (pace > 0f) String.format(Locale.getDefault(), "%.1f min/km", pace) else "—", Modifier.weight(1f))
+                                SecondaryMetric("ROAD GRADE", String.format(Locale.getDefault(), "%+.1f%%", grade), Modifier.weight(1f))
+                                SecondaryMetric("HEADING", compassDirection(bearing), Modifier.weight(1f))
+                            }
                             if (showGpsDiagnostics.value) {
                                 Spacer(Modifier.height(10.dp))
                                 Text("GPS DIAGNOSTICS", color = Kx.Brass, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
@@ -389,7 +402,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                                 if (tracking) "GPS active · Route saved on this device" else if (armed) "Always armed · Waiting for Mi Fitness" else "Grant permissions to enable automatic detection",
                                 color = Kx.Dim, fontSize = 10.sp, modifier = Modifier.weight(1f)
                             )
-                            Text("© OpenStreetMap", color = Kx.Dim, fontSize = 10.sp)
+                            Text("Map tiles © CARTO · Data © OpenStreetMap", color = Kx.Dim, fontSize = 10.sp)
                         }
                     }
                     if (showDisplaySettings) {
@@ -486,7 +499,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                                             factory = { context ->
                                                 MapView(context).apply {
                                                     historyMap = this
-                                                    setTileSource(TileSourceFactory.MAPNIK)
+                                                    setTileSource(cartoVoyagerTiles())
                                                     setMultiTouchControls(true)
                                                     setBuiltInZoomControls(false)
                                                     setTilesScaledToDpi(true)
@@ -523,7 +536,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                                             },
                                             update = { map -> map.invalidate() }
                                         )
-                                        Text("Map data © OpenStreetMap contributors", color = Kx.Dim, fontSize = 9.sp, modifier = Modifier.padding(top = 4.dp))
+                                        Text("Map tiles © CARTO · Data © OpenStreetMap contributors", color = Kx.Dim, fontSize = 9.sp, modifier = Modifier.padding(top = 4.dp))
                                     } else {
                                         Text("No route points were saved for this ride.", color = Kx.Muted, fontSize = 11.sp)
                                     }

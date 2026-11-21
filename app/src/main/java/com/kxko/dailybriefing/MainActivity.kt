@@ -12,6 +12,7 @@ import android.view.View
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.ValueCallback
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -31,6 +32,18 @@ import com.google.firebase.messaging.FirebaseMessaging
  * Android owns system integration; V2 owns the complete application interface.
  */
 class MainActivity : ComponentActivity() {
+
+    /** Called only by the update-check button injected into the trusted V2 Settings page. */
+    inner class UpdateBridge {
+        @JavascriptInterface
+        fun checkForUpdates() {
+            runOnUiThread {
+                if (::updater.isInitialized && !isFinishing && !isDestroyed) {
+                    updater.check(force = true)
+                }
+            }
+        }
+    }
 
     private var webView: WebView? = null
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
@@ -137,6 +150,7 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun createV2WebView(): WebView {
         return WebView(this).apply {
+            addJavascriptInterface(UpdateBridge(), "KxkoUpdater")
             setBackgroundColor(android.graphics.Color.rgb(11, 13, 12))
             overScrollMode = View.OVER_SCROLL_NEVER
             isVerticalScrollBarEnabled = false
@@ -195,8 +209,21 @@ class MainActivity : ComponentActivity() {
                               style.textContent = [
                                 'header.top { display: none !important; }',
                                 '.shell { padding-top: 14px !important; }',
-                                '.tabbar { bottom: calc(28px + env(safe-area-inset-bottom)) !important; }'
+                                '.tabbar { bottom: calc(28px + env(safe-area-inset-bottom)) !important; }',
+                                '.kxko-update-check { margin: 18px 0; width: 100%; padding: 13px 16px; border: 1px solid rgba(198,145,77,.45); border-radius: 12px; background: rgba(198,145,77,.10); color: inherit; font: inherit; font-weight: 600; text-align: center; }'
                               ].join('\\n');
+                              var settings = document.getElementById('view-settings');
+                              if (settings && !document.getElementById('kxko-manual-update-check')) {
+                                var button = document.createElement('button');
+                                button.id = 'kxko-manual-update-check';
+                                button.className = 'kxko-update-check';
+                                button.type = 'button';
+                                button.textContent = 'Check for app updates';
+                                button.addEventListener('click', function () {
+                                  if (window.KxkoUpdater) window.KxkoUpdater.checkForUpdates();
+                                });
+                                settings.appendChild(button);
+                              }
                             })();
                             """.trimIndent(),
                             null

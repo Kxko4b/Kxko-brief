@@ -86,9 +86,9 @@ class UpdateController(private val activity: ComponentActivity) {
         registered = false
     }
 
-    /** Checks quietly at most every six hours; force=true bypasses the interval. */
+    /** Checks quietly at most every 30 minutes; force=true bypasses the interval. */
     fun check(force: Boolean) {
-        if (checking || stage == 1 || stage == 2 || info != null) return
+        if (checking || stage == 1 || stage == 2 || (!force && info != null)) return
         val last = prefs.getLong(KEY_LAST_CHECK, 0L)
         if (!force && System.currentTimeMillis() - last < CHECK_EVERY_MS) return
         checking = true
@@ -112,6 +112,7 @@ class UpdateController(private val activity: ComponentActivity) {
                     onUpdateAvailable?.invoke(newer)
                 } else if (force) {
                     message = if (failed) "Couldn't reach GitHub. Try again later." else "You're on the latest version."
+                    Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
                 }
             }
         }.start()
@@ -275,7 +276,7 @@ class UpdateController(private val activity: ComponentActivity) {
     companion object {
         private const val LATEST_URL =
             "https://api.github.com/repos/Kxko4b/Kxko-brief/releases/latest"
-        private const val CHECK_EVERY_MS = 6L * 60L * 60L * 1000L
+        private const val CHECK_EVERY_MS = 30L * 60L * 1000L
         private const val MIN_APK_BYTES = 100_000L
         private const val KEY_LAST_CHECK = "last_check"
         private const val KEY_DOWNLOAD_ID = "download_id"

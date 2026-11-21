@@ -22,6 +22,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -70,6 +71,9 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Apply postSplashScreenTheme before the Activity creates its window. Without this,
+        // Android can retain the splash theme's title/action-bar area above the WebView.
+        installSplashScreen()
         super.onCreate(savedInstanceState)
 
         // Keep update checks running while the app is in the background (Android schedules these). 

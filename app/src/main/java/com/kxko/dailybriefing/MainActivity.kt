@@ -210,8 +210,8 @@ class MainActivity : ComponentActivity() {
                                 document.head.appendChild(style);
                               }
                               style.textContent = [
-                                'header.top { display: none !important; }',
-                                '.shell { padding-top: 14px !important; }',
+                                'header.top, .top { display: none !important; height: 0 !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; }',
+                                '.shell { padding-top: 0 !important; }',
                                 '.tabbar { bottom: calc(28px + env(safe-area-inset-bottom)) !important; }',
                                 '.kxko-update-check { margin: 18px 0; width: 100%; padding: 13px 16px; border: 1px solid rgba(198,145,77,.45); border-radius: 12px; background: rgba(198,145,77,.10); color: inherit; font: inherit; font-weight: 600; text-align: center; }'
                               ].join('\\n');

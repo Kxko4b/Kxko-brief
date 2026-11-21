@@ -72,6 +72,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Keep update checks running while the app is in the background (Android schedules these). 
+        UpdateCheckWorker.schedule(this)
+
         // Start the always-armed cycling foreground service while the app is visible.
         // Mi Fitness can then trigger a ride without the user opening the Cycling screen.
         armCyclingDetectionIfReady()

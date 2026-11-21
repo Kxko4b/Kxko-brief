@@ -202,6 +202,7 @@ class CyclingTrackerService : Service(), LocationListener {
         distanceMetres = prefs.getFloat(KEY_DISTANCE, 0f)
         movingSeconds = prefs.getLong(KEY_MOVING_SECONDS, 0L)
         elevationGainMetres = prefs.getFloat(KEY_ELEVATION_GAIN, 0f)
+        restoreLastRouteLocation()
         if (prefs.getLong(KEY_TRACKING_STARTED_AT, 0L) == 0L) {
             prefs.edit().putLong(KEY_TRACKING_STARTED_AT, System.currentTimeMillis()).apply()
         }
@@ -226,16 +227,42 @@ class CyclingTrackerService : Service(), LocationListener {
         }
     }
 
+    private fun restoreLastRouteLocation() {
+        val route = runCatching { JSONArray(prefs.getString(KEY_ROUTE_POINTS, "[]") ?: "[]") }
+            .getOrDefault(JSONArray())
+        val lastPoint = route.optJSONArray(route.length() - 1)
+        if (lastPoint == null || lastPoint.length() < 6) {
+            lastRouteLocation = null
+            return
+        }
+        val latitude = lastPoint.optDouble(0, Double.NaN)
+        val longitude = lastPoint.optDouble(1, Double.NaN)
+        if (!latitude.isFinite() || !longitude.isFinite() ||
+            kotlin.math.abs(latitude) > 90.0 || kotlin.math.abs(longitude) > 180.0
+        ) {
+            lastRouteLocation = null
+            return
+        }
+        lastRouteLocation = Location("saved-route").apply {
+            this.latitude = latitude
+            this.longitude = longitude
+            time = lastPoint.optLong(2, 0L)
+            accuracy = lastPoint.optDouble(5, 100.0).toFloat().coerceAtLeast(0.1f)
+        }
+    }
+
     private fun appendRoutePoint(location: Location) {
         val route = runCatching { JSONArray(prefs.getString(KEY_ROUTE_POINTS, "[]") ?: "[]") }
             .getOrDefault(JSONArray())
         val previous = lastRouteLocation
-        if (previous != null && previous.distanceTo(location) < 4f) return
+        // Six metres avoids storing near-identical one-second fixes while retaining a useful track.
+        if (previous != null && previous.distanceTo(location) < 6f) return
         route.put(JSONArray().put(location.latitude).put(location.longitude).put(location.time).put(if (location.hasAltitude()) location.altitude else JSONObject.NULL).put(if (location.hasSpeed()) location.speed * 3.6f else 0f).put(location.accuracy).put(if (location.hasBearing()) location.bearing else 0f).put(if (Build.VERSION.SDK_INT >= 26 && location.hasVerticalAccuracy()) location.verticalAccuracyMeters else -1f))
         lastRouteLocation = location
-        val bounded = if (route.length() > 2500) {
+        // Keep enough points for longer rides; completed history is compacted separately.
+        val bounded = if (route.length() > 5000) {
             JSONArray().also { trimmed ->
-                for (index in route.length() - 2500 until route.length()) trimmed.put(route.getJSONArray(index))
+                for (index in route.length() - 5000 until route.length()) trimmed.put(route.getJSONArray(index))
             }
         } else route
         prefs.edit().putString(KEY_ROUTE_POINTS, bounded.toString()).apply()
@@ -290,6 +317,9 @@ class CyclingTrackerService : Service(), LocationListener {
                     if (movementCandidateCount < 2) {
                         speedKmh = 0f
                     } else {
+                        // Include the first confirmed movement fix so the route starts at the
+                        // beginning of the ride rather than at the second GPS segment.
+                        appendRoutePoint(previous)
                         isMoving = true
                         distanceMetres += pendingMovementDistance
                         movingSeconds += pendingMovementSeconds
@@ -335,7 +365,9 @@ class CyclingTrackerService : Service(), LocationListener {
                     }
                     lastAltitude = altitude
                 }
-                if (isMoving && location.accuracy <= 20f) appendRoutePoint(location)
+                // Movement fixes are accepted up to 25 m accuracy above; use the same
+                // threshold for route points so distance and the displayed track stay aligned.
+                if (isMoving && location.accuracy <= 25f) appendRoutePoint(location)
                 if (isMoving) lastLocation = location
             } else if (segment >= movementThreshold || elapsedSeconds > 30f) {
                 // Large but implausibly slow drift is GPS wander; reset the anchor.
@@ -433,14 +465,20 @@ class CyclingTrackerService : Service(), LocationListener {
     }
 
     private fun saveCompletedRide() {
-        if (distanceMetres < 50f) return
-        val history = runCatching { JSONArray(prefs.getString(KEY_RIDE_HISTORY, "[]") ?: "[]") }
-            .getOrDefault(JSONArray())
         val route = runCatching { JSONArray(prefs.getString(KEY_ROUTE_POINTS, "[]") ?: "[]") }
             .getOrDefault(JSONArray())
+        // A short but genuinely tracked ride should not disappear from history.
+        if (distanceMetres < 50f && route.length() < 2) return
+        val history = runCatching { JSONArray(prefs.getString(KEY_RIDE_HISTORY, "[]") ?: "[]") }
+            .getOrDefault(JSONArray())
         val compactRoute = JSONArray()
-        val step = maxOf(1, route.length() / 600)
+        // Use ceiling division so the saved route never exceeds roughly 600 points.
+        val step = maxOf(1, kotlin.math.ceil(route.length() / 600.0).toInt())
         for (index in 0 until route.length() step step) compactRoute.put(route.getJSONArray(index))
+        val lastRouteIndex = route.length() - 1
+        if (lastRouteIndex >= 0 && lastRouteIndex % step != 0) {
+            compactRoute.put(route.getJSONArray(lastRouteIndex))
+        }
         val startedAt = prefs.getLong(KEY_TRACKING_STARTED_AT, System.currentTimeMillis())
         val endedAt = System.currentTimeMillis()
         val elapsedSeconds = ((endedAt - startedAt).coerceAtLeast(0L)) / 1000L
@@ -488,12 +526,14 @@ class CyclingTrackerService : Service(), LocationListener {
             .put("speedHistory", JSONArray(prefs.getString(KEY_SPEED_HISTORY, "[]") ?: "[]"))
         // Keep every completed ride. History is no longer truncated to a fixed number of sessions.
         history.put(ride)
-        prefs.edit().putString(KEY_RIDE_HISTORY, history.toString()).apply()
+        // Commit the completed ride before marking tracking as stopped.
+        prefs.edit().putString(KEY_RIDE_HISTORY, history.toString()).commit()
     }
 
     private fun finishRide(reason: String) {
         if (!prefs.getBoolean(KEY_TRACKING, false)) return
         prefs.edit().putString(KEY_LAST_END_REASON, reason).apply()
+        lastLocation?.takeIf { it.accuracy in 0f..25f }?.let(::appendRoutePoint)
         saveCompletedRide()
         runCatching { locationManager.removeUpdates(this) }
         if (Build.VERSION.SDK_INT >= 24) runCatching { locationManager.unregisterGnssStatusCallback(gnssCallback) }
@@ -507,7 +547,7 @@ class CyclingTrackerService : Service(), LocationListener {
             .putLong(KEY_TRACKING_ENDED_AT, System.currentTimeMillis())
             .putFloat(KEY_SPEED, 0f)
             .putString(KEY_LAST_END_REASON, reason)
-            .apply()
+            .commit()
         isMoving = false
         updateNotification("Ride saved · Always armed for the next workout")
         sendBroadcast(Intent(ACTION_STATS_UPDATED).setPackage(packageName))

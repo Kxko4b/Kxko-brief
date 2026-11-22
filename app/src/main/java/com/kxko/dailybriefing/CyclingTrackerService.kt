@@ -532,6 +532,8 @@ class CyclingTrackerService : Service(), LocationListener {
         history.put(ride)
         // Commit the completed ride before marking tracking as stopped.
         prefs.edit().putString(KEY_RIDE_HISTORY, history.toString()).commit()
+        // Also send the ride to Supabase. The local copy above is already saved, so a failed upload loses nothing.
+        RideUploader.upload(ride)
     }
 
     private fun finishRide(reason: String) {

@@ -114,6 +114,7 @@ class CyclingTrackerActivity : ComponentActivity() {
         Configuration.getInstance().userAgentValue = packageName
         val filter = android.content.IntentFilter().apply {
             addAction(WatchWorkoutNotificationListener.ACTION_WORKOUT_STARTED)
+            addAction(WatchWorkoutNotificationListener.ACTION_WORKOUT_ENDED)
             addAction(CyclingTrackerService.ACTION_STATS_UPDATED)
         }
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, RECEIVER_NOT_EXPORTED)
@@ -375,6 +376,23 @@ class CyclingTrackerActivity : ComponentActivity() {
                                 modifier = Modifier.fillMaxWidth()
                             )
                         } else {
+                            KxButton(
+                                text = "Start ride now",
+                                onClick = {
+                                    if (hasLocationPermission()) {
+                                        prefs.edit().putBoolean(CyclingTrackerService.KEY_ARMED, true).apply()
+                                        startForegroundService(
+                                            Intent(this@CyclingTrackerActivity, CyclingTrackerService::class.java)
+                                                .setAction(CyclingTrackerService.ACTION_START)
+                                        )
+                                        refresh++
+                                    } else {
+                                        requestLocationAndArm()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(Modifier.height(8.dp))
                             if (!hasLocation) {
                                 KxButton(
                                     text = "Grant location permission",
@@ -393,7 +411,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                                 Text("Allow notification access so Kxko can detect Mi Fitness's “Trainieren...” workout notification.", color = Kx.Muted, fontSize = 11.sp)
                             }
                             if (hasLocation && hasAccess) {
-                                Text("Automatic detection is always armed. Start a workout on your watch to begin GPS tracking.", color = Kx.Muted, fontSize = 11.sp)
+                                Text("Starts automatically when Mi Fitness shows “Trainieren...”, or tap “Start ride now”.", color = Kx.Muted, fontSize = 11.sp)
                             }
                         }
                         Spacer(Modifier.height(8.dp))
@@ -594,7 +612,7 @@ class CyclingTrackerActivity : ComponentActivity() {
             val gpx = buildString {
                 append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
                 append("<gpx version=\"1.1\" creator=\"Kxko Cycling\" xmlns=\"http://www.topografix.com/GPX/1/1\">")
-                append("<metadata><name>" + safeName + "</name></metadata><trk><name>" + safeName + "</name><trkseg>")
+                append("<metadata><n>" + safeName + "</n></metadata><trk><n>" + safeName + "</n><trkseg>")
                 ride.route.forEach { point ->
                     append(String.format(Locale.US, "<trkpt lat=\"%.7f\" lon=\"%.7f\"></trkpt>", point.latitude, point.longitude))
                 }
@@ -819,4 +837,3 @@ private fun compassDirection(degrees: Float): String {
 
 private fun formatDuration(seconds: Long): String =
     String.format(Locale.getDefault(), "%02d:%02d:%02d", seconds / 3600, (seconds % 3600) / 60, seconds % 60)
-

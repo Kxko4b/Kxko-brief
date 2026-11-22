@@ -28,7 +28,7 @@ import org.json.JSONObject
 
 /**
  * User-armed foreground GPS tracker. It waits for Mi Fitness's workout signal,
- * then records distance and speed without starting a location service from the background.
+ * or starts immediately when the user taps "Start ride", then records distance and speed.
  */
 class CyclingTrackerService : Service(), LocationListener {
     private lateinit var locationManager: LocationManager
@@ -220,9 +220,13 @@ class CyclingTrackerService : Service(), LocationListener {
             locationUpdatesRunning = true
             // Cached fixes can be minutes old and create fake distance jumps at startup.
             updateNotification("GPS active — waiting for a fresh location fix…")
+            // Tell the screen right away so it switches to "RIDE IN PROGRESS" without waiting for a GPS fix.
+            sendBroadcast(Intent(ACTION_STATS_UPDATED).setPackage(packageName))
         } catch (_: SecurityException) {
+            prefs.edit().putBoolean(KEY_TRACKING, false).apply()
             updateNotification("Location permission needed — open Kxko Cycling")
         } catch (_: IllegalArgumentException) {
+            prefs.edit().putBoolean(KEY_TRACKING, false).apply()
             updateNotification("Location provider unavailable")
         }
     }

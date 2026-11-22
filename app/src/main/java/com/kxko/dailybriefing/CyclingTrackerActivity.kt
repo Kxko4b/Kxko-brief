@@ -218,12 +218,14 @@ class CyclingTrackerActivity : ComponentActivity() {
                         onDispose { mapView.onPause(); mapView.onDetach(); cyclingMap = null }
                     }
 
+                    // statusBarsPadding keeps the title below the status bar and any overlay drawn there.
                     Column(
                         Modifier.fillMaxWidth()
+                            .statusBarsPadding()
                             .background(androidx.compose.ui.graphics.Brush.verticalGradient(
                                 listOf(Kx.Bg.copy(alpha = 0.94f), Kx.Bg.copy(alpha = 0.72f), Color.Transparent)
                             ))
-                            .padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 34.dp)
+                            .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 34.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
@@ -247,7 +249,7 @@ class CyclingTrackerActivity : ComponentActivity() {
                             text = "● GPS ROUTE",
                             background = Kx.Surface.copy(alpha = 0.94f),
                             foreground = Kx.Good,
-                            modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp, top = 82.dp)
+                            modifier = Modifier.align(Alignment.CenterStart).windowInsetsPadding(WindowInsets.statusBars).padding(start = 16.dp, top = 88.dp)
                         )
                     }
 

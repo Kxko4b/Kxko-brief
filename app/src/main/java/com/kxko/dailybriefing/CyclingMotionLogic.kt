@@ -5,13 +5,17 @@ package com.kxko.dailybriefing
  * Keeping these rules independent makes the pause/start thresholds testable.
  */
 internal object CyclingMotionLogic {
-    const val MIN_CYCLING_SPEED_MPS = 0.8f // approximately 2.9 km/h
+    // Lowered so slow restarts (walking pace on a bike, after a light) still count as movement.
+    const val MIN_CYCLING_SPEED_MPS = 0.5f // approximately 1.8 km/h
     const val MAX_CYCLING_SPEED_MPS = 16.7f // approximately 60 km/h
-    const val MOVEMENT_CANDIDATE_TIMEOUT_MS = 20_000L
-    const val STOP_AFTER_STILL_MS = 10_000L
+    // Longer window so a slow restart can collect its two confirming fixes.
+    const val MOVEMENT_CANDIDATE_TIMEOUT_MS = 30_000L
+    // Longer quiet time before pausing, so short stops do not toggle the ride to paused and back.
+    const val STOP_AFTER_STILL_MS = 15_000L
 
+    // Smaller minimum step at good GPS accuracy, capped so poor accuracy does not block restarts.
     fun minimumDisplacement(accuracyMetres: Float): Float =
-        maxOf(8f, accuracyMetres * 1.2f)
+        (accuracyMetres * 0.8f).coerceIn(4f, 10f)
 
     fun isPlausibleMovementSegment(
         distanceMetres: Float,

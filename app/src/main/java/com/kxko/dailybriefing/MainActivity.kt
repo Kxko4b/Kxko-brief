@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.View
+import android.view.Window
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.ValueCallback
@@ -70,6 +71,9 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Ask for no window title bar before the window is created. This removes the
+        // "Kxko Daily Briefing" app-name bar on devices that draw one for this activity.
+        requestWindowFeature(Window.FEATURE_NO_TITLE)
         super.onCreate(savedInstanceState)
 
         // Keep update checks running while the app is in the background (Android schedules these). 

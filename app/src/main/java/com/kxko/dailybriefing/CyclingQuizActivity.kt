@@ -93,6 +93,9 @@ class CyclingQuizActivity : ComponentActivity() {
     private var correctCount by mutableStateOf(0)
     private var utteranceNumber = 0
 
+    // Only true while this screen is in the foreground. Media-button presses from other apps are ignored otherwise.
+    private var screenVisible = false
+
     // ElevenLabs is mandatory. The quiz never falls back to device text-to-speech.
     private val voiceExecutor: ExecutorService = Executors.newFixedThreadPool(3)
     private val voiceCache = HashMap<String, ByteArray>()
@@ -179,7 +182,25 @@ class CyclingQuizActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        screenVisible = true
+    }
+
+    override fun onPause() {
+        screenVisible = false
+        // Leaving the screen ends the session: no more questions, no speech, and no media-button answers.
+        if (started || acceptingAnswers) finishQuiz()
+        stopVoicePlayer()
+        speakToken++
+        mediaSession?.isActive = false
+        handler.removeCallbacksAndMessages(null)
+        super.onPause()
+    }
+
     private fun sendAnswerFromWatch(index: Int) {
+        // Ignore media-button presses from other apps unless this quiz is open and waiting for an answer.
+        if (!screenVisible || !started || !acceptingAnswers) return
         runOnUiThread { submitAnswer(index) }
     }
 
@@ -314,7 +335,7 @@ class CyclingQuizActivity : ComponentActivity() {
             scheduledReviews.add(ScheduledReview(question, answerCount + 3))
         }
         speak(feedback, onDone = {
-            handler.postDelayed({ if (started && !isFinishing) nextQuestion() }, 800L)
+            handler.postDelayed({ if (started && !isFinishing && screenVisible) nextQuestion() }, 800L)
         })
     }
 
@@ -353,7 +374,7 @@ class CyclingQuizActivity : ComponentActivity() {
             val bytes = fetchVoice(text, lang)
             val errorDetail = lastVoiceError
             runOnUiThread {
-                if (token != speakToken || isFinishing) return@runOnUiThread
+                if (token != speakToken || isFinishing || !screenVisible) return@runOnUiThread
                 if (bytes == null) {
                     voiceError = errorDetail.ifBlank { "Unknown ElevenLabs error. Please retry." }
                     statusText = "ElevenLabs voice failed. Read the error below and tap Retry ElevenLabs."
@@ -397,7 +418,7 @@ class CyclingQuizActivity : ComponentActivity() {
     }
 
     private fun prefetchVoice(text: String, lang: String) {
-        if (!aiVoiceEnabled || !studyLoaded) return
+        if (!aiVoiceEnabled || !studyLoaded || !screenVisible) return
         Thread { fetchVoice(text, lang) }.start()
     }
 
